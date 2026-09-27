@@ -5,8 +5,8 @@
 <h1 align="center">Syno Debrid</h1>
 
 <p align="center">
-  Un lien magnet ou un fichier <code>.torrent</code> passe par votre service debrid, et les fichiers
-  arrivent dans <b>Download Station</b> sur votre Synology, dans le bon dossier.
+  Un lien magnet ou un fichier <code>.torrent</code> passe par AllDebrid, et les fichiers arrivent
+  dans <b>Download Station</b> sur votre Synology, dans le bon dossier.
 </p>
 
 <p align="center">
@@ -35,8 +35,8 @@
 
 ## Fonctionnalités
 
-- **AllDebrid, Real-Debrid et TorBox.** Le service debrid récupère le torrent, puis le NAS
-  télécharge les fichiers en HTTPS. Le NAS ne fait jamais de P2P.
+- **AllDebrid.** Le service debrid récupère le torrent, puis le NAS télécharge les fichiers en
+  HTTPS. Le NAS ne fait jamais de P2P. D'autres services (Real-Debrid, TorBox) pourront suivre.
 - **Liens magnet** (un ou plusieurs à la fois), hash, ou **fichiers `.torrent`** : glisser-déposer
   sur ordinateur, app Fichiers sur iPhone.
 - **Le bon dossier.** Des destinations (Films → `video/Films`, Séries → `video/Séries`…) se créent
@@ -60,7 +60,7 @@
 sequenceDiagram
     participant Vous as iPhone / ordinateur
     participant App as Syno Debrid
-    participant Debrid as AllDebrid / Real-Debrid / TorBox
+    participant Debrid as AllDebrid
     participant DS as Download Station
     Vous->>App: lien magnet ou .torrent + destination
     App->>Debrid: ajoute le torrent
@@ -89,7 +89,7 @@ depuis le Centre de paquets).
 5. L'écran d'accueil liste ce qu'il reste à faire, depuis les **Réglages** (⚙︎) :
    - connecter Download Station : adresse du NAS (`http://IP-DU-NAS:5000`), compte DSM et mot de
      passe ;
-   - coller la clé API du service debrid ;
+   - coller la clé API AllDebrid ;
    - ajouter les destinations.
 
 Le premier qui ouvre l'app crée le compte : faire cette étape avant d'ouvrir l'accès depuis
@@ -136,15 +136,15 @@ DSM et sa clé : la sauvegarde doit rester privée.
 Le compte, la connexion à Download Station, les clés API et les destinations se règlent dans
 l'app. Le reste passe par des variables d'environnement.
 
-| Variable                                                    | Par défaut      | Rôle                                                                                   |
-| ----------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------- |
-| `ALLDEBRID_API_KEY`, `REALDEBRID_API_KEY`, `TORBOX_API_KEY` | vide            | Clés API. Si elles sont définies ici, elles ne sont plus modifiables dans l'interface. |
-| `PUID` / `PGID`                                             | `1000` / `1000` | Propriétaire des fichiers de `/data`.                                                  |
-| `PORT`                                                      | `8080`          | Port HTTP du conteneur.                                                                |
-| `TRUST_PROXY`                                               | `false`         | Fait confiance à `X-Forwarded-For` (derrière un proxy inversé).                        |
-| `AUTH`                                                      | `password`      | `none` : pas de connexion à l'app, un proxy inversé s'en charge (voir plus bas).       |
-| `SESSION_TTL_DAYS`                                          | `30`            | Déconnexion après ce nombre de jours sans ouvrir l'app.                                |
-| `LOG_LEVEL`                                                 | `info`          | `debug`, `info`, `warn` ou `error`.                                                    |
+| Variable            | Par défaut      | Rôle                                                                             |
+| ------------------- | --------------- | -------------------------------------------------------------------------------- |
+| `ALLDEBRID_API_KEY` | vide            | Clé API AllDebrid. Définie ici, elle n'est plus modifiable dans l'interface.     |
+| `PUID` / `PGID`     | `1000` / `1000` | Propriétaire des fichiers de `/data`.                                            |
+| `PORT`              | `8080`          | Port HTTP du conteneur.                                                          |
+| `TRUST_PROXY`       | `false`         | Fait confiance à `X-Forwarded-For` (derrière un proxy inversé).                  |
+| `AUTH`              | `password`      | `none` : pas de connexion à l'app, un proxy inversé s'en charge (voir plus bas). |
+| `SESSION_TTL_DAYS`  | `30`            | Déconnexion après ce nombre de jours sans ouvrir l'app.                          |
+| `LOG_LEVEL`         | `info`          | `debug`, `info`, `warn` ou `error`.                                              |
 
 Les données (compte, réglages, sessions, historique) sont stockées dans `/data`, dans des
 fichiers JSON lisibles uniquement par leur propriétaire, avec `secret.key`, la clé qui chiffre le
@@ -212,16 +212,6 @@ réseau (le mettre sur le même réseau Docker que le proxy, ou publier `127.0.0
 
 ## Bon à savoir
 
-- **Real-Debrid.**
-  - Quand le torrent contient de la vidéo ou de l'audio, seuls ces fichiers sont récupérés. Sinon,
-    Real-Debrid regroupe tout dans une archive RAR.
-  - Un torrent déjà présent sur le compte est réutilisé plutôt qu'ajouté une seconde fois.
-- **TorBox.**
-  - Ses liens ne contiennent pas le nom du fichier. Si Download Station en choisit un autre, l'app
-    renomme le fichier une fois le téléchargement terminé.
-  - Ses liens contiennent aussi un jeton, visible dans Download Station.
-  - TorBox limite la génération de liens (environ 20 par minute) : un gros pack met un peu de temps
-    à partir.
 - **AllDebrid** refuse les adresses IP de serveurs et de VPN : l'app doit tourner à domicile, et
   le NAS convient parfaitement.
 - **Adresse du NAS.**
@@ -236,8 +226,8 @@ npm install
 npm run demo          # tout-en-un : http://localhost:5173, avec un faux NAS et des exemples
 ```
 
-`npm run demo` lance l'interface (rechargement à chaud), l'API et des simulations du NAS et des
-services debrid, avec des réglages et des téléchargements d'exemple. On s'y connecte avec
+`npm run demo` lance l'interface (rechargement à chaud), l'API et des simulations du NAS et
+d'AllDebrid, avec des réglages et des téléchargements d'exemple. On s'y connecte avec
 `demo` / `demo1234`. Avec `DEMO_SEED=0`, l'app démarre comme au premier lancement ; comptes du
 faux NAS pour connecter Download Station :
 
@@ -245,8 +235,8 @@ faux NAS pour connecter Download Station :
 - `secure` / `secure` : validation en deux étapes, code `123456`.
 
 Pour travailler avec un vrai NAS, copier `.env.example` en `.env` puis lancer `npm run dev` (API
-sur :8080, interface sur http://localhost:5173) : l'adresse du NAS se saisit dans l'app. Les
-adresses des services debrid sont intégrées. `npm run dev:mock` lance seulement les simulations,
+sur :8080, interface sur http://localhost:5173) : l'adresse du NAS se saisit dans l'app. L'adresse
+d'AllDebrid est intégrée. `npm run dev:mock` lance seulement les simulations,
 sur le port 5055 (lignes « Without a NAS » de `.env.example`).
 
 ```bash
@@ -263,10 +253,10 @@ Stack : Node.js 24, TypeScript, [Hono](https://hono.dev) côté serveur,
 | -------------------- | -------------------------------------------------------------------- |
 | `src/server/`        | API, compte, connexion au NAS, suivi des téléchargements (`jobs.ts`) |
 | `src/server/nas/`    | Client DSM : connexion, Download Station, File Station               |
-| `src/server/debrid/` | AllDebrid, Real-Debrid, TorBox                                       |
+| `src/server/debrid/` | AllDebrid                                                            |
 | `src/web/`           | Interface (composants Lit)                                           |
 | `src/shared/`        | Types de l'API, lecture des liens magnet et des `.torrent`           |
-| `test/`              | Tests, et simulations du NAS et des services debrid (`test/mocks/`)  |
+| `test/`              | Tests, et simulations du NAS et d'AllDebrid (`test/mocks/`)          |
 
 Les images Docker (amd64 et arm64) sont construites par GitHub Actions et publiées sur
 `ghcr.io/piitaya/syno-debrid` à chaque push sur `main` et à chaque tag `v*`.
@@ -274,10 +264,8 @@ Les images Docker (amd64 et arm64) sont construites par GitHub Actions et publi�
 ## État du projet
 
 L'app a été essayée sur un vrai NAS Synology avec AllDebrid. Elle est aussi testée de bout en bout
-contre des simulations des API : DSM, Download Station, File Station, AllDebrid, Real-Debrid et
-TorBox. Ces simulations s'appuient sur la documentation officielle et sur le code de clients
-existants. Real-Debrid et TorBox n'ont pas encore été essayés avec de vrais comptes : les retours
-sont les bienvenus.
+contre des simulations des API de DSM, Download Station, File Station et AllDebrid, écrites
+d'après leur documentation officielle.
 
 Syno Debrid n'est ni affilié à Synology, ni soutenu par Synology. Synology, DSM et Download Station
 sont des marques de Synology Inc.

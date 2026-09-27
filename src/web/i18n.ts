@@ -129,7 +129,7 @@ const fr = {
 
   'settings.nas': 'NAS',
   'settings.services': 'Services debrid',
-  'settings.servicesFooter': 'Au moins un service est nécessaire.',
+  'settings.servicesFooter': 'Nécessaire pour ajouter des téléchargements.',
   'settings.destinations': 'Destinations',
   'settings.destinationsFooter':
     'Proposées à chaque ajout. Les fichiers sont téléchargés dans le dossier indiqué.',
@@ -408,7 +408,7 @@ const en: Record<MessageKey, string> = {
 
   'settings.nas': 'NAS',
   'settings.services': 'Debrid services',
-  'settings.servicesFooter': 'At least one service is required.',
+  'settings.servicesFooter': 'Needed to add downloads.',
   'settings.destinations': 'Destinations',
   'settings.destinationsFooter':
     'Offered for each download. Files are downloaded to the folder shown.',

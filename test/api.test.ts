@@ -31,9 +31,6 @@ function build(variables: Record<string, string> = {}, loginAttempts = 20) {
   const dir = mkdtempSync(join(tmpdir(), 'dds-api-'));
   const env = loadEnv({
     ALLDEBRID_API_URL: `${server.url}/alldebrid`,
-    REALDEBRID_API_URL: `${server.url}/realdebrid`,
-    TORBOX_API_URL: `${server.url}/torbox`,
-    TORBOX_API_KEY: 'from-env',
     DATA_DIR: dir,
     ...variables,
   });
@@ -275,7 +272,7 @@ describe('HTTP API', () => {
       data: { ok: false, error: { code: 'provider_auth' } },
     });
     const saved = await api('PUT', 'settings', {
-      apiKeys: { alldebrid: 'new-key', torbox: 'ignored' },
+      apiKeys: { alldebrid: 'new-key' },
       categories: [
         { name: 'Séries', icon: 'tv', destination: '/video/Séries/' },
         { name: 'Films', icon: 'movie', destination: 'video/Films' },
@@ -283,11 +280,7 @@ describe('HTTP API', () => {
     });
     const settings = saved.data as AppSettings;
     expect(settings.categories.map((c) => c.destination)).toEqual(['video/Séries', 'video/Films']);
-    expect(settings.providers.find((p) => p.id === 'torbox')).toEqual({
-      id: 'torbox',
-      configured: true,
-      fromEnv: true,
-    });
+    expect(settings.providers).toEqual([{ id: 'alldebrid', configured: true, fromEnv: false }]);
     const [series, films] = settings.categories;
 
     const added = await api('POST', 'jobs', {
@@ -300,7 +293,7 @@ describe('HTTP API', () => {
     expect(results[0]).toMatchObject({ input: 'not-a-magnet', error: { code: 'magnet_invalid' } });
 
     const form = new FormData();
-    form.set('provider', 'torbox');
+    form.set('provider', 'alldebrid');
     form.set('categoryId', films!.id);
     form.append('torrents', new Blob([makeTorrent('Big.Buck.Bunny.mkv')]), 'bbb.torrent');
     form.append('torrents', new Blob(['not a torrent']), 'oops.torrent');
@@ -318,11 +311,6 @@ describe('HTTP API', () => {
     });
     expect(pack.files).toHaveLength(5);
     expect(movie).toMatchObject({ status: 'completed', destination: 'video/Films' });
-
-    // TorBox links carry no file name: the file was renamed on the NAS.
-    expect(mock.dsm.state.renamed).toEqual([
-      expect.stringMatching(/^\/video\/Films\/[0-9a-f]{32} -> Big\.Buck\.Bunny\.mkv$/),
-    ]);
 
     expect((await api('POST', 'jobs/clear')).status).toBe(204);
     expect((await api('GET', 'jobs')).data.jobs).toEqual([]);
@@ -412,6 +400,17 @@ describe('HTTP API', () => {
     // The devices of the previous account are signed out; the settings stay.
     expect((await other('GET', 'settings')).status).toBe(401);
     expect((await api('GET', 'settings')).data.nas.account).toBe('paul');
+  });
+});
+
+describe('Environment', () => {
+  it('takes an API key from the environment, read-only in the app', async () => {
+    const api = client(build({ ALLDEBRID_API_KEY: 'good', AUTH: 'none' }).app);
+    const saved = await api('PUT', 'settings', { apiKeys: { alldebrid: 'ignored' } });
+    expect((saved.data as AppSettings).providers).toEqual([
+      { id: 'alldebrid', configured: true, fromEnv: true },
+    ]);
+    expect((await api('POST', 'providers/alldebrid/test')).data).toMatchObject({ ok: true });
   });
 });
 

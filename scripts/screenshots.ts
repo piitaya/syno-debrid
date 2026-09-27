@@ -26,7 +26,7 @@ const dataDir = mkdtempSync(join(tmpdir(), 'dds-shots-'));
 writeFileSync(
   join(dataDir, 'settings.json'),
   JSON.stringify({
-    apiKeys: { alldebrid: 'demo', realdebrid: 'demo' },
+    apiKeys: { alldebrid: 'demo' },
     defaultProvider: 'alldebrid',
     categories: [
       { id: 'films', name: 'Films', icon: 'movie', destination: 'video/Films' },
@@ -47,8 +47,6 @@ const server = spawn('node', ['dist/server/index.js'], {
     HOST: '127.0.0.1',
     DATA_DIR: dataDir,
     ALLDEBRID_API_URL: `${NAS}/alldebrid`,
-    REALDEBRID_API_URL: `${NAS}/realdebrid`,
-    TORBOX_API_URL: `${NAS}/torbox`,
     LOG_LEVEL: 'warn',
   },
   stdio: 'inherit',
@@ -150,12 +148,12 @@ try {
   {
     const { context, page } = await open(browser, iphone, 'light');
     await login(page);
-    const add = async (name: string, categoryId: string, provider = 'alldebrid') => {
+    const add = async (name: string, categoryId: string) => {
       const response = await page.request.post(`${APP}/api/jobs`, {
         headers: { 'X-Requested-With': 'dds' },
         data: {
           magnets: [`magnet:?xt=urn:btih:${fakeHash(name)}&dn=${name}`],
-          provider,
+          provider: 'alldebrid',
           categoryId,
         },
       });
@@ -165,7 +163,7 @@ try {
     await add('Cosmos.Laundromat.2015.1080p.dead', 'kids');
     await sleep(9000);
     await add('Sintel.S01.1080p.WEB-DL', 'series');
-    await add('Tears.of.Steel.2012.2160p.slow', 'films', 'realdebrid');
+    await add('Tears.of.Steel.2012.2160p.slow', 'films');
     await add('Big.Buck.Bunny.2008.1080p.mkv', 'films');
     await sleep(9000);
     await context.close();

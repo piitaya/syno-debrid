@@ -25,7 +25,7 @@ const dataDir = mkdtempSync(join(tmpdir(), 'dds-demo-'));
 writeFileSync(
   join(dataDir, 'settings.json'),
   JSON.stringify({
-    apiKeys: { alldebrid: 'demo', realdebrid: 'demo' },
+    apiKeys: { alldebrid: 'demo' },
     defaultProvider: 'alldebrid',
     categories: [
       { id: 'films', name: 'Films', icon: 'movie', destination: 'video/Films' },
@@ -46,8 +46,6 @@ const api = spawn('npx', ['tsx', 'src/server/index.ts'], {
     HOST: '127.0.0.1',
     DATA_DIR: dataDir,
     ALLDEBRID_API_URL: `${mockUrl}/alldebrid`,
-    REALDEBRID_API_URL: `${mockUrl}/realdebrid`,
-    TORBOX_API_URL: `${mockUrl}/torbox`,
     LOG_LEVEL: 'warn',
   },
   stdio: 'inherit',
@@ -88,20 +86,20 @@ async function seed(): Promise<void> {
     body: JSON.stringify({ url: mockUrl, account: 'syno-debrid', password: 'syno-debrid' }),
   });
   const hash = (n: number) => n.toString(16).padStart(40, '0');
-  const samples: [string, string, string][] = [
-    ['Elephants.Dream.2006.720p.mkv', 'films', 'alldebrid'],
-    ['Big.Buck.Bunny.2008.1080p.mkv', 'films', 'alldebrid'],
-    ['Sintel.S01.1080p.WEB', 'series', 'alldebrid'],
-    ['Tears.of.Steel.2012.1080p.slow', 'films', 'realdebrid'],
-    ['Cosmos.Laundromat.2015.dead', 'kids', 'alldebrid'],
+  const samples: [string, string][] = [
+    ['Elephants.Dream.2006.720p.mkv', 'films'],
+    ['Big.Buck.Bunny.2008.1080p.mkv', 'films'],
+    ['Sintel.S01.1080p.WEB', 'series'],
+    ['Tears.of.Steel.2012.1080p.slow', 'films'],
+    ['Cosmos.Laundromat.2015.dead', 'kids'],
   ];
-  for (const [index, [name, categoryId, provider]] of samples.entries()) {
+  for (const [index, [name, categoryId]] of samples.entries()) {
     await fetch(`${apiUrl}/api/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'dds', Cookie: cookie },
       body: JSON.stringify({
         magnets: [`magnet:?xt=urn:btih:${hash(index + 1)}&dn=${name}`],
-        provider,
+        provider: 'alldebrid',
         categoryId,
       }),
     });

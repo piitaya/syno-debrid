@@ -1,4 +1,4 @@
-// Fake Synology NAS + fake AllDebrid / Real-Debrid / TorBox, for local development.
+// Fake Synology NAS + fake AllDebrid, for local development.
 // DSM accounts: admin/admin, paul/paul, marie/marie, secure/secure (2FA code 123456).
 import { serve } from '@hono/node-server';
 import { createMockServer } from '../test/mocks/server.js';

@@ -44,22 +44,3 @@ export function httpError(status: number, message?: string): AppError {
   if (status >= 500) return new AppError('provider_unreachable', message ?? `HTTP ${status}`);
   return new AppError('provider_error', message ?? `HTTP ${status}`);
 }
-
-/** Runs calls one at a time, at least `intervalMs` apart (for rate-limited endpoints). */
-export class Pacer {
-  private last = 0;
-  private queue: Promise<unknown> = Promise.resolve();
-
-  constructor(private readonly intervalMs: number) {}
-
-  run<T>(task: () => Promise<T>): Promise<T> {
-    const result = this.queue.then(async () => {
-      const wait = this.last + this.intervalMs - Date.now();
-      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-      this.last = Date.now();
-      return task();
-    });
-    this.queue = result.catch(() => undefined);
-    return result;
-  }
-}

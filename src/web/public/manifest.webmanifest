@@ -1,7 +1,7 @@
 {
   "name": "Syno Debrid",
   "short_name": "Syno Debrid",
-  "description": "Envoi de torrents et de liens magnet vers Download Station via AllDebrid, Real-Debrid ou TorBox.",
+  "description": "Envoi de torrents et de liens magnet vers Download Station via AllDebrid.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

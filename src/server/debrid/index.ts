@@ -3,8 +3,6 @@ import type { Env } from '../env.js';
 import { AppError } from '../errors.js';
 import type { Settings } from '../settings.js';
 import { AllDebrid } from './alldebrid.js';
-import { RealDebrid } from './realdebrid.js';
-import { TorBox } from './torbox.js';
 import type { DebridProvider } from './types.js';
 
 export function createProvider(id: ProviderId, apiKey: string, env: Env): DebridProvider {
@@ -12,10 +10,6 @@ export function createProvider(id: ProviderId, apiKey: string, env: Env): Debrid
   switch (id) {
     case 'alldebrid':
       return new AllDebrid(apiKey, baseUrl);
-    case 'realdebrid':
-      return new RealDebrid(apiKey, baseUrl);
-    case 'torbox':
-      return new TorBox(apiKey, baseUrl);
   }
 }
 

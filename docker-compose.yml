@@ -11,10 +11,8 @@ services:
       # Owner of the files in ./data: the id of your DSM user (run `id` over SSH).
       PUID: 1026
       PGID: 100
-      # Optional: debrid API keys (they can also be entered in the Settings page).
+      # Optional: the AllDebrid API key (it can also be entered in the Settings page).
       # ALLDEBRID_API_KEY: ''
-      # REALDEBRID_API_KEY: ''
-      # TORBOX_API_KEY: ''
       # Optional: no sign-in, when a reverse proxy authenticates every request (Authelia…).
       # AUTH: none
     volumes:

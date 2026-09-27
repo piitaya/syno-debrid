@@ -1,12 +1,10 @@
 /** API contract shared by the server and the web app. */
 
-export const PROVIDER_IDS = ['alldebrid', 'realdebrid', 'torbox'] as const;
+export const PROVIDER_IDS = ['alldebrid'] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 export const PROVIDERS: Record<ProviderId, { name: string; apiKeyUrl: string }> = {
   alldebrid: { name: 'AllDebrid', apiKeyUrl: 'https://alldebrid.com/apikeys/' },
-  realdebrid: { name: 'Real-Debrid', apiKeyUrl: 'https://real-debrid.com/apitoken' },
-  torbox: { name: 'TorBox', apiKeyUrl: 'https://torbox.app/settings' },
 };
 
 export const isProviderId = (value: unknown): value is ProviderId =>

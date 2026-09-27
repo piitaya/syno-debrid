@@ -15,11 +15,7 @@ let providers: (key?: string) => Record<ProviderId, DebridProvider>;
 
 beforeAll(async () => {
   server = await listen(mock.app);
-  const env = loadEnv({
-    ALLDEBRID_API_URL: `${server.url}/alldebrid`,
-    REALDEBRID_API_URL: `${server.url}/realdebrid`,
-    TORBOX_API_URL: `${server.url}/torbox`,
-  });
+  const env = loadEnv({ ALLDEBRID_API_URL: `${server.url}/alldebrid` });
   providers = (key = 'good') =>
     Object.fromEntries(PROVIDER_IDS.map((id) => [id, createProvider(id, key, env)])) as Record<
       ProviderId,
@@ -33,7 +29,7 @@ const nextHash = () => (++hashes).toString(16).padStart(40, '0');
 const magnet = (name: string, hash = nextHash()) =>
   `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}`;
 
-/** Polls until the torrent is ready (selecting files on Real-Debrid on the way). */
+/** Polls until the torrent is ready. */
 async function waitReady(provider: DebridProvider, id: string) {
   let status = await provider.status(id);
   for (let i = 0; i < 5 && status.state !== 'ready' && status.state !== 'error'; i++) {
@@ -73,12 +69,7 @@ describe.each(PROVIDER_IDS)('%s', (id) => {
     expect(content.name).toBe('Sintel.S01.1080p.WEB');
     const paths = content.files.map((file) => file.path);
     expect(paths).toContain('Sintel.S01E01.1080p.WEB.mkv');
-    if (id === 'realdebrid') {
-      // Only media files, so that Real-Debrid does not pack everything into a RAR.
-      expect(paths).not.toContain('Subs/English.srt');
-    } else {
-      expect(paths).toContain('Subs/English.srt');
-    }
+    expect(paths).toContain('Subs/English.srt');
 
     const url = await provider.unlock(added.id, content.files[0]!);
     expect(url).toMatch(new RegExp(`^${server.url}/cdn/${id}/`));
@@ -104,16 +95,6 @@ describe.each(PROVIDER_IDS)('%s', (id) => {
     expect(status.state).toBe('error');
     expect(status.error).toBeInstanceOf(AppError);
     expect(['torrent_dead', 'torrent_failed']).toContain(status.error!.code);
-  });
-});
-
-describe('realdebrid specifics', () => {
-  it('reuses a torrent already in the account instead of adding a stuck copy', async () => {
-    const provider = providers().realdebrid;
-    const hash = nextHash();
-    const first = await provider.addMagnet(magnet('Tears.of.Steel', hash), hash);
-    const again = await provider.addMagnet(magnet('Tears.of.Steel', hash), hash);
-    expect(again.id).toBe(first.id);
   });
 });
 

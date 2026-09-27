@@ -70,8 +70,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     providerKeys,
     providerUrls: {
       alldebrid: trimSlash(source.ALLDEBRID_API_URL?.trim() || 'https://api.alldebrid.com'),
-      realdebrid: trimSlash(source.REALDEBRID_API_URL?.trim() || 'https://api.real-debrid.com'),
-      torbox: trimSlash(source.TORBOX_API_URL?.trim() || 'https://api.torbox.app'),
     },
     logLevel:
       logLevel === 'debug' || logLevel === 'warn' || logLevel === 'error' ? logLevel : 'info',

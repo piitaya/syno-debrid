@@ -2,7 +2,7 @@
   "name": "syno-debrid",
   "version": "1.0.0",
   "private": true,
-  "description": "Send torrents and magnet links through a debrid service (AllDebrid, Real-Debrid, TorBox) straight into Synology Download Station.",
+  "description": "Send torrents and magnet links through AllDebrid straight into Synology Download Station.",
   "type": "module",
   "engines": {
     "node": ">=22.19"
