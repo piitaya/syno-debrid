@@ -28,6 +28,23 @@ export const errorInfo = (error: unknown): ErrorInfo =>
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
+const RELOADED_AT = 'dds.reloadedAt';
+
+/**
+ * The API never redirects: a redirect comes from a proxy in front of the app (Authelia…) whose
+ * session is over. Loading the page again lets the proxy take the browser to its sign-in page; at
+ * most once a minute, in case the proxy lets the page through anyway.
+ */
+function reloadThroughProxy(): void {
+  try {
+    if (Date.now() - Number(sessionStorage.getItem(RELOADED_AT)) < 60_000) return;
+    sessionStorage.setItem(RELOADED_AT, String(Date.now()));
+  } catch {
+    return;
+  }
+  location.reload();
+}
+
 // Relative URLs so the app also works behind a reverse proxy sub-path.
 async function request<T>(method: Method, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'X-Requested-With': 'dds' };
@@ -41,9 +58,13 @@ async function request<T>(method: Method, path: string, body?: unknown): Promise
 
   let response: Response;
   try {
-    response = await fetch(`api/${path}`, { method, headers, body: payload });
+    response = await fetch(`api/${path}`, { method, headers, body: payload, redirect: 'manual' });
   } catch (error) {
     throw new ApiError({ code: 'internal', message: (error as Error).message });
+  }
+  if (response.type === 'opaqueredirect') {
+    reloadThroughProxy();
+    throw new ApiError({ code: 'internal', message: 'Redirected by a proxy' });
   }
 
   // An empty body (204) reads as null.
