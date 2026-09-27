@@ -146,10 +146,8 @@ export class DdsSettingsPage extends LitElement {
 
   private registerMagnetHandler(): void {
     try {
-      navigator.registerProtocolHandler(
-        'magnet',
-        `${location.origin}${location.pathname}?magnet=%s`,
-      );
+      // Opens the downloads page, not this one.
+      navigator.registerProtocolHandler('magnet', new URL('./?magnet=%s', location.href).href);
       store.toast(t('settings.magnetHandlerDone'), 'info');
     } catch {
       store.toast(errorMessage('internal'), 'error');

@@ -23,8 +23,14 @@ import { sharedStyles } from './styles.js';
 
 type Route = 'downloads' | 'settings';
 
-const routeFromHash = (): Route =>
-  location.hash.startsWith('#/settings') ? 'settings' : 'downloads';
+/**
+ * Each page has its URL, next to the app's own (which can be a sub-path): `./` and `./settings`.
+ * Changed with the History API: on `#` changes, an iPhone home screen web app reloads itself.
+ */
+const ROUTE_URLS: Record<Route, string> = { downloads: './', settings: 'settings' };
+
+const currentRoute = (): Route =>
+  location.pathname.endsWith('/settings') ? 'settings' : 'downloads';
 
 const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
@@ -39,7 +45,6 @@ function takeUrlMagnet(): string | null {
 
 @customElement('dds-app')
 export class DdsApp extends LitElement {
-  @state() private route: Route = routeFromHash();
   @state() private dragging = false;
 
   @query('dds-add-sheet') private addSheet?: DdsAddSheet;
@@ -54,7 +59,8 @@ export class DdsApp extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
-    window.addEventListener('hashchange', this.onHashChange);
+    window.addEventListener('popstate', this.onRouteChange);
+    window.addEventListener('click', this.onClick);
     window.addEventListener('dragenter', this.onDragEnter);
     window.addEventListener('dragover', this.onDragOver);
     window.addEventListener('dragleave', this.onDragLeave);
@@ -66,7 +72,8 @@ export class DdsApp extends LitElement {
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
-    window.removeEventListener('hashchange', this.onHashChange);
+    window.removeEventListener('popstate', this.onRouteChange);
+    window.removeEventListener('click', this.onClick);
     window.removeEventListener('dragenter', this.onDragEnter);
     window.removeEventListener('dragover', this.onDragOver);
     window.removeEventListener('dragleave', this.onDragLeave);
@@ -84,9 +91,26 @@ export class DdsApp extends LitElement {
     }
   }
 
-  private readonly onHashChange = () => {
-    this.route = routeFromHash();
+  /** Read from the URL: signing out goes back to the downloads by changing it (see the store). */
+  private get route(): Route {
+    return currentRoute();
+  }
+
+  private readonly onRouteChange = () => {
+    this.requestUpdate();
     window.scrollTo({ top: 0 });
+  };
+
+  /** Links to a page of the app (`<a href="settings">`) open it without loading the app again. */
+  private readonly onClick = (event: MouseEvent) => {
+    const link = event
+      .composedPath()
+      .find((node): node is HTMLAnchorElement => node instanceof HTMLAnchorElement);
+    const modified = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+    if (!link || link.target || link.origin !== location.origin) return;
+    if (event.defaultPrevented || event.button !== 0 || modified) return;
+    event.preventDefault();
+    this.open(link.href);
   };
 
   private readonly onOpenAdd = () => {
@@ -136,7 +160,13 @@ export class DdsApp extends LitElement {
   };
 
   private navigate(route: Route): void {
-    location.hash = route === 'settings' ? '#/settings' : '#/';
+    this.open(ROUTE_URLS[route]);
+  }
+
+  private open(url: string): void {
+    if (new URL(url, location.href).href === location.href) return;
+    history.pushState(null, '', url);
+    this.onRouteChange();
   }
 
   override render() {

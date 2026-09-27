@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -26,13 +26,14 @@ let jobs: JobManager;
 let accountFile: JsonFile<StoredAccount | null>;
 
 /** The app, on a new data folder, with these environment variables. */
-function build(variables: Record<string, string> = {}, loginAttempts = 20) {
+function build(variables: Record<string, string> = {}, loginAttempts = 20, webRoot?: string) {
   const dir = mkdtempSync(join(tmpdir(), 'dds-api-'));
   const env = loadEnv({
     ALLDEBRID_API_URL: `${server.url}/alldebrid`,
     DATA_DIR: dir,
     ...variables,
   });
+  if (webRoot) env.webRoot = webRoot;
   const settings = new Settings(new JsonFile<StoredSettings>(join(dir, 's.json'), defaultSettings));
   const accountFile = new JsonFile<StoredAccount | null>(join(dir, 'a.json'), () => null);
   const account = new Account(accountFile);
@@ -462,5 +463,19 @@ describe('Request size', () => {
       status: 400,
       data: { error: { code: 'provider_not_configured' } },
     });
+  });
+});
+
+describe('Web app', () => {
+  it('answers each page of the app with the app', async () => {
+    const webRoot = mkdtempSync(join(tmpdir(), 'dds-web-'));
+    writeFileSync(join(webRoot, 'index.html'), '<dds-app></dds-app>');
+    const target = build({}, 20, webRoot).app;
+    for (const path of ['/', '/settings']) {
+      const response = await target.request(`http://app.test${path}`);
+      expect(await response.text()).toBe('<dds-app></dds-app>');
+      expect(response.headers.get('cache-control')).toBe('no-cache');
+    }
+    expect((await target.request('http://app.test/other')).status).toBe(404);
   });
 });

@@ -148,7 +148,7 @@ try {
       await shot(page, 'iphone-add-light');
       await page.keyboard.press('Escape');
 
-      await page.goto(`${APP}/#/settings`);
+      await page.goto(`${APP}/settings`);
       await page.getByRole('heading', { name: 'Service debrid' }).waitFor();
       await sleep(1000);
       await shot(page, 'iphone-settings-light');
@@ -165,7 +165,7 @@ try {
     await login(page);
     await shot(page, `desktop-downloads-${scheme}`);
     if (scheme === 'light') {
-      await page.goto(`${APP}/#/settings`);
+      await page.goto(`${APP}/settings`);
       await page.getByRole('button', { name: /Ajouter une destination/ }).click();
       await page.getByPlaceholder('Films, Séries…').fill('Documentaires');
       await page.getByRole('button', { name: 'Parcourir' }).click();

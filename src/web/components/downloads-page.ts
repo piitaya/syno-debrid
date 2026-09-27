@@ -112,7 +112,7 @@ export class DdsDownloadsPage extends LitElement {
           ${icon}<span class="row-title">${title}</span>
         </div>`;
       }
-      return html`<a class="row step" href="#/settings">
+      return html`<a class="row step" href="settings">
         ${icon}
         <span class="row-main"><span class="row-title">${title}</span></span>
         <dds-icon class="chevron" .path=${mdiChevronRight}></dds-icon>

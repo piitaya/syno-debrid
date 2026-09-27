@@ -493,6 +493,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     '/*',
     serveStatic({
       root: env.webRoot,
+      // The app's pages (see src/web/components/app.ts) are all the same document.
+      rewriteRequestPath: (path) => (path === '/settings' ? '/index.html' : path),
       onFound: (path, c) => {
         c.header(
           'Cache-Control',

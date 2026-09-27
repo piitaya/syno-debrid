@@ -364,7 +364,7 @@ export class DdsAddSheet extends LitElement {
         <dds-icon .path=${mdiAlertCircleOutline}></dds-icon>
         <div class="notice-text">
           <p>${t('add.notConfigured')}</p>
-          <a href="#/settings" @click=${() => this.sheet.close()}>${t('common.openSettings')}</a>
+          <a href="settings" @click=${() => this.sheet.close()}>${t('common.openSettings')}</a>
         </div>
       </div>
     </div>`;

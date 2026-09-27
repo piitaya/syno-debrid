@@ -84,7 +84,7 @@ class Store extends EventTarget {
   async logout(): Promise<void> {
     await api.logout().catch(() => undefined);
     // Signing in again starts from the downloads.
-    location.hash = '#/';
+    history.replaceState(null, '', './');
     this.reset(null);
   }
 

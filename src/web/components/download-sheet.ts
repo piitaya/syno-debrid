@@ -134,7 +134,7 @@ export class DdsDownloadSheet extends LitElement {
                 <dds-icon class="warning-text" .path=${mdiAlertCircleOutline}></dds-icon>
                 <div class="notice-text">
                   <p>${t('downloads.waitingNas')}</p>
-                  <a href="#/settings" @click=${() => this.sheet.close()}>
+                  <a href="settings" @click=${() => this.sheet.close()}>
                     ${t('common.openSettings')}
                   </a>
                 </div>
