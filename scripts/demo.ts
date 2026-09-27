@@ -20,7 +20,7 @@ const mock = createMockServer({ speed: 5 * 1024 * 1024 });
 serve({ fetch: mock.app.fetch, port: mockPort, hostname: '127.0.0.1' });
 
 // The server restarts when its code changes.
-const api = spawn('npx', ['tsx', 'watch', 'src/server/index.ts'], {
+const api = spawn('npx', ['tsx', 'watch', '--clear-screen=false', 'src/server/index.ts'], {
   env: serverEnv(apiPort, sampleDataDir(), mockUrl),
   stdio: 'inherit',
 });

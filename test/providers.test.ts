@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AllDebrid } from '../src/server/debrid/alldebrid.js';
 import { AppError } from '../src/server/errors.js';
@@ -77,6 +79,21 @@ describe('AllDebrid', () => {
     expect(status.state).toBe('error');
     expect(status.error).toBeInstanceOf(AppError);
     expect(status.error!.code).toBe('torrent_dead');
+  });
+
+  it('takes a reply cut short for a service out of reach', async () => {
+    // Retried later, like any network hiccup, instead of failing the download.
+    const cut = createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Length': '500' });
+      response.write('{"status":"succ');
+      setTimeout(() => response.destroy(), 50);
+    });
+    await new Promise<void>((resolve) => cut.listen(0, '127.0.0.1', resolve));
+    const { port } = cut.address() as AddressInfo;
+    await expect(new AllDebrid('good', `http://127.0.0.1:${port}`).account()).rejects.toMatchObject(
+      { code: 'provider_unreachable' },
+    );
+    cut.close();
   });
 
   it('maps invalid magnets', async () => {

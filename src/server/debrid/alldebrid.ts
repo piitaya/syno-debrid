@@ -98,6 +98,7 @@ export class AllDebrid implements DebridProvider {
   private async call<T>(path: string, body?: URLSearchParams | FormData): Promise<T> {
     const url = `${this.baseUrl}/${path}?agent=${AGENT}`;
     let response: Response;
+    let text: string;
     try {
       response = await fetch(url, {
         method: 'POST',
@@ -105,13 +106,20 @@ export class AllDebrid implements DebridProvider {
         body,
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
+      // A reply cut short is a network error too.
+      text = await response.text();
     } catch (error) {
       const cause = (error as Error & { cause?: Error }).cause;
       log.debug(`Request failed: ${redact(url)}`, cause ?? error);
       throw new AppError('provider_unreachable', cause?.message ?? (error as Error).message);
     }
     log.debug(`POST ${redact(url)} → ${response.status}`);
-    const data = (await response.json().catch(() => null)) as Envelope<T> | null;
+    let data: Envelope<T> | null = null;
+    try {
+      data = JSON.parse(text) as Envelope<T>;
+    } catch {
+      // Not JSON (empty, an error page): the status says what happened.
+    }
     if (data?.status === 'success' && data.data !== undefined) return data.data;
     if (data?.error) throw toError(data.error);
     const { status } = response;

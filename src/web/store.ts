@@ -30,16 +30,18 @@ class Store extends EventTarget {
 
   private events: EventSource | null = null;
   private toastId = 0;
-  private checkingSession = false;
+  private checkingSession: Promise<void> | null = null;
 
   constructor() {
     super();
-    window.addEventListener('dds-unauthorized', () => this.checkSession());
+    window.addEventListener('dds-unauthorized', () => void this.checkSession());
     // Back to the foreground: the session may have ended, the live connection dropped.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible' || !this.session) return;
-      this.checkSession();
-      if (!this.events || this.events.readyState === EventSource.CLOSED) this.connectEvents();
+      void this.checkSession().then(() => {
+        const closed = !this.events || this.events.readyState === EventSource.CLOSED;
+        if (this.session && closed) this.connectEvents();
+      });
     });
   }
 
@@ -81,6 +83,8 @@ class Store extends EventTarget {
 
   async logout(): Promise<void> {
     await api.logout().catch(() => undefined);
+    // Signing in again starts from the downloads.
+    location.hash = '#/';
     this.reset(null);
   }
 
@@ -111,18 +115,18 @@ class Store extends EventTarget {
    * Signs out only if the server says the session is over (a request was refused, the live
    * connection closed…). A server being restarted or out of reach only means offline.
    */
-  private checkSession(): void {
-    if (!this.session || this.checkingSession) return;
-    this.checkingSession = true;
-    api
+  private checkSession(): Promise<void> {
+    if (!this.session) return Promise.resolve();
+    this.checkingSession ??= api
       .session()
       .then((status) => {
         if (!status.session) this.reset(status.reason ?? 'unauthorized');
       })
       .catch(() => undefined)
       .finally(() => {
-        this.checkingSession = false;
+        this.checkingSession = null;
       });
+    return this.checkingSession;
   }
 
   private connectEvents(): void {
@@ -153,7 +157,7 @@ class Store extends EventTarget {
       this.changed();
       // EventSource retries by itself, unless the server answered with an error (e.g. 401).
       if (source.readyState === EventSource.CLOSED) {
-        this.checkSession();
+        void this.checkSession();
         setTimeout(() => {
           if (this.events === source && this.session) this.connectEvents();
         }, 5000);

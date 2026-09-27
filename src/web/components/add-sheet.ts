@@ -198,7 +198,7 @@ export class DdsAddSheet extends LitElement {
   private removeMagnet(magnet: MagnetInfo): void {
     this.text = this.text
       .split(/\s+/)
-      .filter((token) => token && !token.includes(magnet.hash))
+      .filter((token) => token && extractMagnets(token).magnets[0]?.hash !== magnet.hash)
       .join('\n');
   }
 
