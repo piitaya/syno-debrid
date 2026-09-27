@@ -1,0 +1,16 @@
+# Syno Debrid — example for Synology Container Manager (Project) or docker compose.
+services:
+  syno-debrid:
+    image: ghcr.io/piitaya/syno-debrid:latest
+    container_name: syno-debrid
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    environment:
+      # Owner of the files in ./data: the id of your DSM user (run `id` over SSH).
+      PUID: 1026
+      PGID: 100
+      # Optional: no sign-in, when a reverse proxy authenticates every request (Authelia…).
+      # AUTH: none
+    volumes:
+      - ./data:/data
