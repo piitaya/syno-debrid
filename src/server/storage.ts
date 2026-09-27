@@ -70,7 +70,8 @@ export class JsonFile<T> {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    const temp = `${this.path}.tmp`;
+    // Not the temp file of flush(): a write may still be under way in the background.
+    const temp = `${this.path}.sync.tmp`;
     writeFileSync(temp, JSON.stringify(this.data, null, 2), { mode: 0o600 });
     renameSync(temp, this.path);
   }

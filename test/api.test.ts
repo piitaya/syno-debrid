@@ -462,3 +462,21 @@ describe('Sign-in limit', () => {
     expect(statuses).toEqual([401, 401, 401, 429, 429]);
   });
 });
+
+describe('Request size', () => {
+  it('turns down large requests, except for .torrent files', async () => {
+    const api = client(build().app);
+    const large = 'x'.repeat(100 * 1024);
+    expect(await api('POST', 'setup', { username: 'paul', password: large })).toMatchObject({
+      status: 413,
+      data: { error: { code: 'invalid_request' } },
+    });
+    expect((await api('POST', 'setup', { username: 'paul', password: 'long enough' })).status).toBe(
+      200,
+    );
+    // POST /jobs takes .torrent files: a large request goes on to be checked.
+    expect(
+      await api('POST', 'jobs', { provider: 'alldebrid', categoryId: 'none', magnets: [large] }),
+    ).toMatchObject({ status: 400, data: { error: { code: 'provider_not_configured' } } });
+  });
+});

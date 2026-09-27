@@ -225,6 +225,17 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     await next();
   });
 
+  // Requests are small JSON documents, except for the .torrent files of POST /jobs.
+  const smallBody = bodyLimit({
+    maxSize: 64 * 1024,
+    onError: () => {
+      throw new HttpError(413, 'invalid_request', 'Request too large');
+    },
+  });
+  api.use('*', (c, next) =>
+    c.req.method === 'POST' && c.req.path === '/api/jobs' ? next() : smallBody(c, next),
+  );
+
   const requireSession: MiddlewareHandler<{ Variables: Vars }> = async (c, next) => {
     if (!signIn) return next();
     const token = getCookie(c, SESSION_COOKIE);
