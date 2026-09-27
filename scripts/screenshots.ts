@@ -149,7 +149,7 @@ try {
       await page.keyboard.press('Escape');
 
       await page.goto(`${APP}/#/settings`);
-      await page.getByText('Services debrid').waitFor();
+      await page.getByRole('heading', { name: 'Service debrid' }).waitFor();
       await sleep(1000);
       await shot(page, 'iphone-settings-light');
     } else {
