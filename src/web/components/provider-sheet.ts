@@ -188,12 +188,11 @@ export class DdsProviderSheet extends LitElement {
   override render() {
     const provider = PROVIDERS[PROVIDER];
     const configured = this.providerState?.configured ?? false;
-    const fromEnv = this.providerState?.fromEnv ?? false;
 
     return html`
       <dds-sheet
         heading=${provider.name}
-        primaryLabel=${fromEnv ? '' : this.keyRefused ? t('provider.saveAnyway') : t('provider.save')}
+        primaryLabel=${this.keyRefused ? t('provider.saveAnyway') : t('provider.save')}
         ?primaryDisabled=${!this.key.trim() || this.working}
         ?busy=${this.saving}
         .error=${this.error}
@@ -201,17 +200,16 @@ export class DdsProviderSheet extends LitElement {
         @dds-closed=${this.onClosed}
       >
         ${
-          this.check || fromEnv
+          this.check
             ? html`<section class="section">
                 <h3 class="section-header">${t('provider.account')}</h3>
-                ${this.check ? html`<div class="group">${this.renderCheck(this.check)}</div>` : nothing}
-                ${fromEnv ? html`<p class="section-footer">${this.renderFromEnv()}</p>` : nothing}
+                <div class="group">${this.renderCheck(this.check)}</div>
               </section>`
             : nothing
         }
-        ${fromEnv ? nothing : this.renderKey(configured)}
+        ${this.renderKey(configured)}
         ${
-          configured && !fromEnv
+          configured
             ? html`<section class="section">
                 <div class="group">
                   <button
@@ -244,13 +242,6 @@ export class DdsProviderSheet extends LitElement {
       title: errorMessage(check.error.code),
       detail: raw && raw !== check.error.code ? t('common.detail', { message: raw }) : undefined,
     });
-  }
-
-  /** The variable name is shown in monospace. */
-  private renderFromEnv() {
-    const name = `${PROVIDER.toUpperCase()}_API_KEY`;
-    const [before, after = ''] = t('provider.fromEnv', { name: '\u0000' }).split('\u0000');
-    return html`${before}<code>${name}</code>${after}`;
   }
 
   private renderKey(configured: boolean) {
@@ -324,12 +315,6 @@ export class DdsProviderSheet extends LitElement {
 
       .actions a dds-icon {
         --icon-size: 16px;
-      }
-
-      code {
-        font-family: var(--font-mono);
-        font-size: 0.95em;
-        overflow-wrap: anywhere;
       }
     `,
   ];

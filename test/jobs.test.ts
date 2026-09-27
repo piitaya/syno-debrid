@@ -3,7 +3,6 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { loadEnv } from '../src/server/env.js';
 import { EventHub } from '../src/server/events.js';
 import { JobManager, type JobsFile } from '../src/server/jobs.js';
 import { NasConnection } from '../src/server/nas-connection.js';
@@ -30,7 +29,6 @@ function setup(options = { createSubfolder: true, deleteFromDebrid: false }) {
   const dir = mkdtempSync(join(tmpdir(), 'dds-'));
   const settings = new Settings(
     new JsonFile<StoredSettings>(join(dir, 'settings.json'), defaultSettings),
-    loadEnv({ DATA_DIR: dir }),
   );
   const nas = new NasConnection(settings, randomBytes(32));
   const provider = new FakeProvider();

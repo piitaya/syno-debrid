@@ -38,8 +38,6 @@ export interface Category {
 export interface ProviderState {
   id: ProviderId;
   configured: boolean;
-  /** The API key comes from an environment variable and cannot be changed from the UI. */
-  fromEnv: boolean;
 }
 
 /** Connection to Download Station: the DSM account the downloads are made with. */

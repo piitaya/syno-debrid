@@ -29,7 +29,7 @@ const settingsFile = new JsonFile<StoredSettings>(
 const sessionsFile = new JsonFile<SessionMap>(join(env.dataDir, 'sessions.json'), () => ({}));
 const jobsFile = new JsonFile<JobsFile>(join(env.dataDir, 'jobs.json'), () => ({ jobs: [] }));
 
-const settings = new Settings(settingsFile, env);
+const settings = new Settings(settingsFile);
 const account = new Account(
   new JsonFile<StoredAccount | null>(join(env.dataDir, 'account.json'), () => null),
 );

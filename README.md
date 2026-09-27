@@ -132,15 +132,14 @@ DSM account's encrypted password and its key (`secret.key`): keep the backup pri
 The account, the Download Station connection, the API keys and the destinations are set up in the
 app. The rest goes through environment variables.
 
-| Variable            | Default         | Purpose                                                                      |
-| ------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `ALLDEBRID_API_KEY` | empty           | AllDebrid API key. When set here, it can no longer be changed in the app.    |
-| `PUID` / `PGID`     | `1000` / `1000` | Owner of the files in `/data`.                                               |
-| `PORT`              | `8080`          | HTTP port of the container.                                                  |
-| `TRUST_PROXY`       | `false`         | Trust `X-Forwarded-For` (behind a reverse proxy).                            |
-| `AUTH`              | `password`      | `none`: no sign-in to the app, a reverse proxy takes care of it (see below). |
-| `SESSION_TTL_DAYS`  | `30`            | Signed out after this many days without opening the app.                     |
-| `LOG_LEVEL`         | `info`          | `debug`, `info`, `warn` or `error`.                                          |
+| Variable           | Default         | Purpose                                                                      |
+| ------------------ | --------------- | ---------------------------------------------------------------------------- |
+| `PUID` / `PGID`    | `1000` / `1000` | Owner of the files in `/data`.                                               |
+| `PORT`             | `8080`          | HTTP port of the container.                                                  |
+| `TRUST_PROXY`      | `false`         | Trust `X-Forwarded-For` (behind a reverse proxy).                            |
+| `AUTH`             | `password`      | `none`: no sign-in to the app, a reverse proxy takes care of it (see below). |
+| `SESSION_TTL_DAYS` | `30`            | Signed out after this many days without opening the app.                     |
+| `LOG_LEVEL`        | `info`          | `debug`, `info`, `warn` or `error`.                                          |
 
 ## Accounts and security
 

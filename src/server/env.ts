@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { PROVIDER_IDS, type ProviderId } from '../shared/types.js';
+import type { ProviderId } from '../shared/types.js';
 
 export interface Env {
   port: number;
@@ -12,8 +12,6 @@ export interface Env {
   sessionTtlDays: number;
   /** Trust `X-Forwarded-*` headers set by a reverse proxy. */
   trustProxy: boolean;
-  /** API keys set through the environment (they take precedence over the UI settings). */
-  providerKeys: Partial<Record<ProviderId, string>>;
   /** Base URLs of the debrid APIs (overridable for tests). */
   providerUrls: Record<ProviderId, string>;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
@@ -30,11 +28,6 @@ function trimSlash(value: string): string {
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const providerKeys: Partial<Record<ProviderId, string>> = {};
-  for (const id of PROVIDER_IDS) {
-    const key = source[`${id.toUpperCase()}_API_KEY`]?.trim();
-    if (key) providerKeys[id] = key;
-  }
   const logLevel = source.LOG_LEVEL?.trim().toLowerCase();
 
   return {
@@ -47,7 +40,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     auth: source.AUTH?.trim().toLowerCase() === 'none' ? 'none' : 'password',
     sessionTtlDays: int(source.SESSION_TTL_DAYS, 30, 1, 365),
     trustProxy: source.TRUST_PROXY?.trim().toLowerCase() === 'true',
-    providerKeys,
     providerUrls: {
       alldebrid: trimSlash(source.ALLDEBRID_API_URL?.trim() || 'https://api.alldebrid.com'),
     },

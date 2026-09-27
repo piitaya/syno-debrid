@@ -158,7 +158,6 @@ const fr = {
   'provider.replaceHint':
     'Une clé est déjà enregistrée ; saisissez-en une autre pour la remplacer.',
   'provider.getKey': 'Obtenir une clé API',
-  'provider.fromEnv': 'Clé définie par la variable d’environnement {name}.',
   'provider.test': 'Tester',
   'provider.save': 'Enregistrer',
   'provider.saveAnyway': 'Enregistrer quand même',
@@ -430,7 +429,6 @@ const en: Record<MessageKey, string> = {
   'provider.apiKeyPlaceholder': 'Paste the API key',
   'provider.replaceHint': 'A key is saved. Enter a new one to replace it.',
   'provider.getKey': 'Get an API key',
-  'provider.fromEnv': 'Key set by the {name} environment variable.',
   'provider.test': 'Test',
   'provider.save': 'Save',
   'provider.saveAnyway': 'Save anyway',

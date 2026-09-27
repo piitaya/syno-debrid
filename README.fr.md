@@ -137,15 +137,14 @@ sauvegarde doit rester privée.
 Le compte, la connexion à Download Station, les clés API et les destinations se règlent dans
 l'app. Le reste passe par des variables d'environnement.
 
-| Variable            | Par défaut      | Rôle                                                                             |
-| ------------------- | --------------- | -------------------------------------------------------------------------------- |
-| `ALLDEBRID_API_KEY` | vide            | Clé API AllDebrid. Définie ici, elle n'est plus modifiable dans l'interface.     |
-| `PUID` / `PGID`     | `1000` / `1000` | Propriétaire des fichiers de `/data`.                                            |
-| `PORT`              | `8080`          | Port HTTP du conteneur.                                                          |
-| `TRUST_PROXY`       | `false`         | Fait confiance à `X-Forwarded-For` (derrière un proxy inversé).                  |
-| `AUTH`              | `password`      | `none` : pas de connexion à l'app, un proxy inversé s'en charge (voir plus bas). |
-| `SESSION_TTL_DAYS`  | `30`            | Déconnexion après ce nombre de jours sans ouvrir l'app.                          |
-| `LOG_LEVEL`         | `info`          | `debug`, `info`, `warn` ou `error`.                                              |
+| Variable           | Par défaut      | Rôle                                                                             |
+| ------------------ | --------------- | -------------------------------------------------------------------------------- |
+| `PUID` / `PGID`    | `1000` / `1000` | Propriétaire des fichiers de `/data`.                                            |
+| `PORT`             | `8080`          | Port HTTP du conteneur.                                                          |
+| `TRUST_PROXY`      | `false`         | Fait confiance à `X-Forwarded-For` (derrière un proxy inversé).                  |
+| `AUTH`             | `password`      | `none` : pas de connexion à l'app, un proxy inversé s'en charge (voir plus bas). |
+| `SESSION_TTL_DAYS` | `30`            | Déconnexion après ce nombre de jours sans ouvrir l'app.                          |
+| `LOG_LEVEL`        | `info`          | `debug`, `info`, `warn` ou `error`.                                              |
 
 ## Comptes et sécurité
 

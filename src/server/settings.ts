@@ -9,7 +9,6 @@ import {
   type ProviderId,
   type SettingsUpdate,
 } from '../shared/types.js';
-import type { Env } from './env.js';
 import { HttpError } from './errors.js';
 import type { JsonFile } from './storage.js';
 
@@ -76,10 +75,7 @@ function sanitizeCategories(input: unknown): Category[] {
 }
 
 export class Settings {
-  constructor(
-    private readonly file: JsonFile<StoredSettings>,
-    private readonly env: Env,
-  ) {
+  constructor(private readonly file: JsonFile<StoredSettings>) {
     this.file.data = { ...defaultSettings(), ...this.file.data };
   }
 
@@ -97,7 +93,7 @@ export class Settings {
   }
 
   apiKey(id: ProviderId): string | null {
-    return this.env.providerKeys[id] ?? this.data.apiKeys[id] ?? null;
+    return this.data.apiKeys[id] ?? null;
   }
 
   configuredProviders(): ProviderId[] {
@@ -120,11 +116,7 @@ export class Settings {
     const nas = this.data.nas;
     return {
       nas: nas ? { url: nas.url, account: nas.account, insecureTls: nas.insecureTls } : null,
-      providers: PROVIDER_IDS.map((id) => ({
-        id,
-        configured: this.apiKey(id) !== null,
-        fromEnv: this.env.providerKeys[id] !== undefined,
-      })),
+      providers: PROVIDER_IDS.map((id) => ({ id, configured: this.apiKey(id) !== null })),
       categories: this.data.categories,
       createSubfolder: this.data.createSubfolder,
       deleteFromDebrid: this.data.deleteFromDebrid,

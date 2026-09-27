@@ -33,10 +33,7 @@ function build(variables: Record<string, string> = {}, loginAttempts = 20) {
     DATA_DIR: dir,
     ...variables,
   });
-  const settings = new Settings(
-    new JsonFile<StoredSettings>(join(dir, 's.json'), defaultSettings),
-    env,
-  );
+  const settings = new Settings(new JsonFile<StoredSettings>(join(dir, 's.json'), defaultSettings));
   const accountFile = new JsonFile<StoredAccount | null>(join(dir, 'a.json'), () => null);
   const account = new Account(accountFile);
   const sessions = new Sessions(
@@ -272,7 +269,7 @@ describe('HTTP API', () => {
     });
     const settings = saved.data as AppSettings;
     expect(settings.categories.map((c) => c.destination)).toEqual(['video/Séries', 'video/Films']);
-    expect(settings.providers).toEqual([{ id: 'alldebrid', configured: true, fromEnv: false }]);
+    expect(settings.providers).toEqual([{ id: 'alldebrid', configured: true }]);
     const [series, films] = settings.categories;
 
     const pasted = new FormData();
@@ -394,17 +391,6 @@ describe('HTTP API', () => {
     // The devices of the previous account are signed out; the settings stay.
     expect((await other('GET', 'settings')).status).toBe(401);
     expect((await api('GET', 'settings')).data.nas.account).toBe('paul');
-  });
-});
-
-describe('Environment', () => {
-  it('takes an API key from the environment, read-only in the app', async () => {
-    const api = client(build({ ALLDEBRID_API_KEY: 'good', AUTH: 'none' }).app);
-    const saved = await api('PUT', 'settings', { apiKeys: { alldebrid: 'ignored' } });
-    expect((saved.data as AppSettings).providers).toEqual([
-      { id: 'alldebrid', configured: true, fromEnv: true },
-    ]);
-    expect((await api('POST', 'providers/alldebrid/test')).data).toMatchObject({ ok: true });
   });
 });
 
