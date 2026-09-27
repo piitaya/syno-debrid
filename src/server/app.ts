@@ -154,7 +154,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
 
   const clientIp = (c: Ctx): string => {
     if (env.trustProxy) {
-      const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+      // The proxy adds the address it sees at the end: the ones before come from the client.
+      const forwarded = c.req.header('x-forwarded-for')?.split(',').pop()?.trim();
       if (forwarded) return forwarded;
     }
     try {
@@ -272,15 +273,14 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     if (!account.exists) {
       return c.json({ session: null, reason: 'setup_required' } satisfies SessionStatus);
     }
-    const ip = clientIp(c);
-    if (deps.loginLimiter.isBlocked(ip)) throw new HttpError(429, 'too_many_attempts');
     const input = await body(c);
     const username = typeof input.username === 'string' ? input.username.trim() : '';
     const password = typeof input.password === 'string' ? input.password : '';
     if (!username || !password) throw new HttpError(400, 'invalid_request');
 
+    const ip = clientIp(c);
+    if (!deps.loginLimiter.attempt(ip)) throw new HttpError(429, 'too_many_attempts');
     if (!(await account.check(username, password))) {
-      deps.loginLimiter.fail(ip);
       log.warn(`Failed sign-in from ${ip}`);
       throw new HttpError(401, 'invalid_credentials');
     }
@@ -296,14 +296,14 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
   });
 
   api.post('/account/password', requireSignIn, requireSession, async (c) => {
-    const ip = clientIp(c);
-    if (deps.loginLimiter.isBlocked(ip)) throw new HttpError(429, 'too_many_attempts');
     const input = await body(c);
     const password = parseNewPassword(input.password);
+    const ip = clientIp(c);
+    if (!deps.loginLimiter.attempt(ip)) throw new HttpError(429, 'too_many_attempts');
     if (!(await account.checkPassword(typeof input.current === 'string' ? input.current : ''))) {
-      deps.loginLimiter.fail(ip);
       return c.json({ ok: false, error: { code: 'wrong_password' } } satisfies Outcome);
     }
+    deps.loginLimiter.reset(ip);
     await account.setPassword(password);
     // Every other device is signed out; this one gets a new session.
     sessions.clear();

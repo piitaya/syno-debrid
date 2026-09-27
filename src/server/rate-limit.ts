@@ -26,6 +26,16 @@ export class RateLimiter {
     this.attempts.set(key, [...this.recent(key), Date.now()]);
   }
 
+  /**
+   * Counts an attempt before its outcome is known, so that attempts made in parallel count too.
+   * False when the limit is reached (nothing is counted then).
+   */
+  attempt(key: string): boolean {
+    if (this.isBlocked(key)) return false;
+    this.fail(key);
+    return true;
+  }
+
   reset(key: string): void {
     this.attempts.delete(key);
   }

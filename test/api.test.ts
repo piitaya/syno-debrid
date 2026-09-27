@@ -27,7 +27,7 @@ let jobs: JobManager;
 let accountFile: JsonFile<StoredAccount | null>;
 
 /** The app, on a new data folder, with these environment variables. */
-function build(variables: Record<string, string> = {}) {
+function build(variables: Record<string, string> = {}, loginAttempts = 20) {
   const dir = mkdtempSync(join(tmpdir(), 'dds-api-'));
   const env = loadEnv({
     ALLDEBRID_API_URL: `${server.url}/alldebrid`,
@@ -71,7 +71,7 @@ function build(variables: Record<string, string> = {}) {
     events,
     provider: (id) => providers.get(id),
     providerWithKey: (id, key) => createProvider(id, key, env),
-    loginLimiter: new RateLimiter(20, 60_000),
+    loginLimiter: new RateLimiter(loginAttempts, 60_000),
     nasLoginLimiter: new RateLimiter(20, 60_000),
   });
   return { app, jobs, accountFile };
@@ -422,5 +422,32 @@ describe('AUTH=none', () => {
     });
     expect(saved.data).toMatchObject({ ok: true });
     expect((await api('GET', 'folders')).status).toBe(200);
+  });
+});
+
+describe('Sign-in limit', () => {
+  const wrong = { username: 'paul', password: 'not the password' };
+
+  it('counts attempts made in parallel', async () => {
+    const { app: target } = build({}, 3);
+    await client(target)('POST', 'setup', { username: 'paul', password: 'long enough' });
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => client(target)('POST', 'login', wrong)),
+    );
+    const statuses = results.map((result) => result.status);
+    expect(statuses.filter((status) => status === 401)).toHaveLength(3);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(7);
+  });
+
+  it('keeps to the address the reverse proxy saw', async () => {
+    const { app: target } = build({ TRUST_PROXY: 'true' }, 3);
+    await client(target)('POST', 'setup', { username: 'paul', password: 'long enough' });
+    // The first addresses come from the client: made up, one per attempt.
+    const statuses: number[] = [];
+    for (let n = 1; n <= 5; n++) {
+      const headers = { 'X-Forwarded-For': `10.0.0.${n}, 203.0.113.7` };
+      statuses.push((await client(target)('POST', 'login', wrong, headers)).status);
+    }
+    expect(statuses).toEqual([401, 401, 401, 429, 429]);
   });
 });
