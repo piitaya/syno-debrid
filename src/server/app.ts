@@ -178,7 +178,11 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
 
   /** Signs this browser in. */
   const startSession = (c: Ctx): void => {
-    const { token } = sessions.create();
+    setSessionCookie(c, sessions.create().token);
+  };
+
+  /** Also sent again each time the app opens: the browser keeps it as long as the session. */
+  const setSessionCookie = (c: Ctx, token: string): void => {
     setCookie(c, SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: 'Lax',
@@ -247,6 +251,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
       deleteCookie(c, SESSION_COOKIE, { path: '/' });
       return c.json({ session: null, reason: 'unauthorized' } satisfies SessionStatus);
     }
+    setSessionCookie(c, token);
     return c.json({ session: sessionInfo() } satisfies SessionStatus);
   });
 

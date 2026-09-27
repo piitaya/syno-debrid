@@ -209,6 +209,18 @@ describe('HTTP API', () => {
     expect((await api('GET', 'session')).data).toEqual({ session: null });
   });
 
+  it('keeps the session cookie as long as the app is opened', async () => {
+    const api = await signedIn();
+    const token = (await api('GET', 'health')).jar.get('dds_session');
+    // The app asks for the session each time it opens: the cookie gets its full life again.
+    const opened = await app.request('http://app.test/api/session', {
+      headers: { Cookie: `dds_session=${token}` },
+    });
+    const cookie = opened.headers.getSetCookie().find((c) => c.startsWith('dds_session='));
+    expect(cookie).toContain(`dds_session=${token}`);
+    expect(cookie).toContain(`Max-Age=${30 * 24 * 3600}`);
+  });
+
   it('says when a session is over, once', async () => {
     const api = client();
     const ended = await api('GET', 'session', undefined, { Cookie: 'dds_session=forgotten' });
