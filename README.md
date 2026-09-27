@@ -7,8 +7,9 @@
 <p align="center"><b>English</b> · <a href="README.fr.md">Français</a></p>
 
 <p align="center">
-  A magnet link or a <code>.torrent</code> file goes through AllDebrid, and the files land in
-  <b>Download Station</b> on your Synology, in the right folder.
+  Download torrents to your Synology through AllDebrid.<br>
+  Add a magnet link or a <code>.torrent</code> file, pick a folder, and <b>Download Station</b>
+  does the rest.
 </p>
 
 <p align="center">
@@ -37,24 +38,24 @@
 
 ## Features
 
-- **AllDebrid.** The debrid service fetches the torrent, then the NAS downloads the files over
-  HTTPS. The NAS never does any P2P.
-- **Magnet links** (one or several at once), hashes, or **`.torrent` files**: drag and drop on a
-  computer, the Files app on an iPhone.
-- **The right folder.** Destinations (Movies → `video/Movies`, TV Shows → `video/TV`…) are set up
-  by browsing the NAS folders, creating a new one on the way if needed; you pick one each time you
-  add a download. The last one used is remembered.
-- **Like a BitTorrent client.** A torrent with several files gets its own folder, with its
-  subfolders.
-- **Live progress.** At the debrid service, then in Download Station, file by file, with retry and
-  stop.
-- **An account for the app, a DSM account for Download Station.** You sign in to the app with its
-  own password, or with no password at all behind a proxy that authenticates (Authelia…).
-  Downloads are created with a DSM account chosen in the settings, ideally a dedicated one. The app
-  logs back in by itself: downloads carry on without anyone.
-- **Made for the iPhone.** The app installs on the home screen, switches to dark mode on its own,
-  and speaks English and French.
-- **Light.** A Docker image of about 60 MB (amd64 and arm64), no database.
+- **No P2P on your NAS.** AllDebrid downloads the torrent, then your NAS fetches the files from
+  AllDebrid over HTTPS.
+- **Magnet links and `.torrent` files.** Paste one or more magnet links (or plain hashes), or add
+  a `.torrent` file: drag and drop it on a computer, or pick it in the Files app on an iPhone.
+- **Straight to the right folder.** Set up destinations such as Movies → `video/Movies` or TV
+  Shows → `video/TV` by browsing your NAS, creating folders along the way if needed. Then pick one
+  each time you add a download; the app remembers your last choice.
+- **Tidy, like a BitTorrent client.** A torrent with several files gets its own folder,
+  subfolders included.
+- **Live progress.** Follow each download at AllDebrid, then in Download Station, file by file.
+  Retry a download that failed, or stop one in progress.
+- **Two separate accounts.** You sign in to the app with its own password, or not at all behind a
+  proxy that handles sign-in (Authelia…). The app creates the downloads with a DSM account of your
+  choice, ideally a dedicated one, and logs back in by itself, so downloads keep going without
+  you.
+- **Made for the iPhone.** Add it to your home screen. It follows dark mode and speaks English and
+  French.
+- **Lightweight.** A Docker image of about 60 MB (amd64 and arm64), no database.
 
 ## How it works
 
@@ -64,164 +65,171 @@ sequenceDiagram
     participant App as Syno Debrid
     participant Debrid as AllDebrid
     participant DS as Download Station
-    You->>App: magnet link or .torrent + destination
+    You->>App: magnet link or .torrent, and a destination
     App->>Debrid: adds the torrent
-    Debrid-->>App: ready (instantly when already cached)
-    App->>Debrid: direct link of each file
-    App->>DS: creates the folders and the tasks
-    DS->>Debrid: downloads the files (HTTPS)
+    Debrid-->>App: ready (right away if already cached)
+    App->>Debrid: gets a direct link for each file
+    App->>DS: creates the folders and tasks
+    DS->>Debrid: downloads the files over HTTPS
     App-->>You: live progress
 ```
 
-## Installing on a Synology
+## Install on a Synology
 
-Requirements: DSM 7.2 or later, with **Container Manager** and **Download Station** (installed from
-the Package Center).
+You need DSM 7.2 or later, with **Container Manager** and **Download Station** installed from the
+Package Center.
 
 1. In **File Station**, create a `docker/syno-debrid` folder.
-2. In **Container Manager**, open **Project → Create** and fill in:
-   - name: `syno-debrid`;
-   - path: the folder created in step 1;
-   - source: "Create docker-compose.yml".
+2. In **Container Manager**, go to **Project → Create** and fill in:
+   - Project name: `syno-debrid`
+   - Path: the folder you just created
+   - Source: "Create docker-compose.yml"
 
-   Then paste the content of [`docker-compose.yml`](docker-compose.yml).
+   Then paste the contents of [`docker-compose.yml`](docker-compose.yml).
 
-3. Confirm: the image is downloaded and the container starts.
-4. Open **`http://NAS-IP:8080`** and create the app's account.
-5. The home screen lists what is left to do, from the **Settings** (⚙︎):
-   - connect Download Station: NAS address (`http://NAS-IP:5000`), DSM account and password;
-   - paste the AllDebrid API key;
-   - add the destinations.
+3. Confirm. Container Manager downloads the image and starts the container.
+4. Open **`http://NAS-IP:8080`** and create your account.
+5. The home screen lists what's left to set up, all in **Settings** (⚙︎):
+   - connect Download Station with the NAS address (`http://NAS-IP:5000`) and a DSM account;
+   - paste your AllDebrid API key;
+   - add your destinations.
 
-Whoever opens the app first creates the account: do this step before opening access from outside.
+The first person to open the app creates the account, so do it before you make the app reachable
+from the internet.
 
-`PUID` and `PGID` set who owns the files in `./data`. `1026:100` is the first user created on the
-NAS and the `users` group; the `id` command, over SSH, tells you for sure. Outside Container
-Manager, `docker compose up -d` is all it takes.
+`PUID` and `PGID` set who owns the files in `./data`. `1026:100` is usually the first user created
+on the NAS, in the `users` group; run `id` over SSH to check. Not using Container Manager?
+`docker compose up -d` is all you need.
 
 ### A dedicated DSM account (recommended)
 
-The app only needs Download Station and the download folders. A separate account limits what it
-can do on the NAS:
+The app only needs Download Station and your download folders. Giving it its own account limits
+what it can do on your NAS:
 
-1. **Control Panel** → **User & Group** → **Create**: for example `syno-debrid`, with a strong
-   password.
-2. **Shared folders**: read/write on the destination folders (`video`…), no access to the others.
-3. **Applications**: allow only **Download Station** and **File Station**.
+1. In **Control Panel** → **User & Group**, create a user, for example `syno-debrid`, with a
+   strong password.
+2. Give it read/write access to your destination folders (`video`…), and no access to the other
+   shared folders.
+3. In its application permissions, allow only **Download Station** and **File Station**.
 
-The downloaded files then belong to this account; the shared folders keep the NAS's permissions.
+Downloaded files then belong to this account. Access to them still follows your shared folder
+permissions.
 
-## Updating
+## Update
 
 In **Container Manager**:
 
-1. **Project** → `syno-debrid` → **Action** → **Stop**, then **Clean**: the container is removed,
-   not the settings.
-2. **Image**: delete `ghcr.io/piitaya/syno-debrid`.
-3. **Project** → `syno-debrid` → **Action** → **Build**: the latest image is downloaded and the app
-   starts again.
+1. In **Project**, select `syno-debrid`, then **Action** → **Stop**, and **Action** → **Clean**.
+   This removes the container, not your data.
+2. In **Image**, delete `ghcr.io/piitaya/syno-debrid`.
+3. Back in **Project**, select `syno-debrid`, then **Action** → **Build**. Container Manager
+   downloads the latest image and starts the app again.
 
-Elsewhere: `docker compose pull && docker compose up -d`.
+With Docker Compose: `docker compose pull && docker compose up -d`.
 
-The account, settings, API keys, sessions and running downloads are in the project's `data`
-folder, in JSON files only their owner can read: that is the folder to back up. It also holds the
-DSM account's encrypted password and its key (`secret.key`): keep the backup private.
+### Backup
+
+Everything the app keeps lives in the project's `data` folder: your account, settings, AllDebrid
+API key, sessions and downloads in progress, as JSON files only their owner can read. That's the
+folder to back up. It also holds the encrypted DSM password and its key (`secret.key`), so keep
+your backup private.
 
 ## Configuration
 
-The account, the Download Station connection, the API keys and the destinations are set up in the
-app. The rest goes through environment variables.
+Your account, the Download Station connection, the AllDebrid API key and the destinations are all
+set up in the app. Everything else is an environment variable:
 
-| Variable           | Default         | Purpose                                                                      |
-| ------------------ | --------------- | ---------------------------------------------------------------------------- |
-| `PUID` / `PGID`    | `1000` / `1000` | Owner of the files in `/data`.                                               |
-| `PORT`             | `8080`          | HTTP port of the container.                                                  |
-| `TRUST_PROXY`      | `false`         | Trust `X-Forwarded-For` (behind a reverse proxy).                            |
-| `AUTH`             | `password`      | `none`: no sign-in to the app, a reverse proxy takes care of it (see below). |
-| `SESSION_TTL_DAYS` | `30`            | Signed out after this many days without opening the app.                     |
-| `LOG_LEVEL`        | `info`          | `debug`, `info`, `warn` or `error`.                                          |
+| Variable           | Default         | Description                                                            |
+| ------------------ | --------------- | ---------------------------------------------------------------------- |
+| `PUID` / `PGID`    | `1000` / `1000` | Owner of the files in `/data`.                                         |
+| `PORT`             | `8080`          | Port the app listens on.                                               |
+| `TRUST_PROXY`      | `false`         | Trust `X-Forwarded-For`. Turn it on behind a reverse proxy.            |
+| `AUTH`             | `password`      | `none` turns off sign-in, when a reverse proxy handles it (see below). |
+| `SESSION_TTL_DAYS` | `30`            | Days without opening the app before you are signed out.                |
+| `LOG_LEVEL`        | `info`          | `debug`, `info`, `warn` or `error`.                                    |
 
 ## Accounts and security
 
-- **The app's account.** It is created on the first start, with a password of at least 8
-  characters, which can be changed in the Settings; the other devices are then signed out. You
-  stay signed in as long as you open the app at least once every 30 days.
-- **Forgotten password.** Delete `account.json` from the `data` folder, then restart the
-  container: the app offers to create the account again. Settings, the Download Station
-  connection and downloads are kept.
-- **DSM account.** It needs **Download Station**, **File Station** (to browse and create folders)
-  and write access to the destination folders. The app keeps its password, **encrypted**, to log
-  back in when DSM ends the session (after 7 days, or when the NAS restarts).
-- **DSM password changed.** The app tries the old one only once, then waits: new downloads show
-  "Waiting for Download Station" until the new password is entered in Settings → Download Station.
-  Those already handed over to Download Station carry on.
-- **2-step verification.** If the DSM account uses it, the code is asked only once, when
-  connecting Download Station.
+- **Your account.** You create it the first time you open the app, with a password of at least 8
+  characters. Changing the password in Settings signs out your other devices. You stay signed in
+  as long as you open the app at least once every 30 days.
+- **Forgot your password?** Delete `account.json` from the `data` folder and restart the
+  container. The app asks you to create a new account, and keeps your settings, the Download
+  Station connection and your downloads.
+- **The DSM account** needs **Download Station**, **File Station** (to browse and create folders)
+  and write access to your destination folders. The app stores its password, **encrypted**, so it
+  can log back in when DSM ends the session (after 7 days, or when the NAS restarts).
+- **Changed the DSM password?** The app tries the old one only once. New downloads then show
+  "Waiting for Download Station" until you enter the new password in Settings → Download Station.
+  Downloads already handed over to Download Station keep going.
+- **2-step verification.** If the DSM account uses it, you only enter a code once, when you
+  connect Download Station.
 - **DSM auto block.** By default, DSM blocks an IP address after 10 failed logins within 5
-  minutes, and every login to DSM comes from the container. So the app limits its own failures
-  with DSM (6 per 5 minutes) and never tries a refused password again. Sign-ins to the app don't go
-  through DSM: 5 failures per 15 minutes and per IP address.
+  minutes, and all of the app's DSM logins come from the container. So the app allows itself at
+  most 6 failed DSM logins every 5 minutes, and never retries a refused password. Signing in to
+  the app doesn't involve DSM; it is limited to 5 failed attempts per IP address every 15 minutes.
 
 ## On the iPhone
 
-- **Home screen.** In Safari: Share → "Add to Home Screen".
-- **Magnet link.** Copy it, tap **+**, then **Paste** (available over HTTPS) or long-press in the
+- **Home screen.** In Safari, tap Share → "Add to Home Screen".
+- **Magnet link.** Copy it, tap **+**, then **Paste** (HTTPS only), or long-press in the text
   field.
 - **`.torrent` file.** The **Choose a .torrent file** button opens the Files app.
 - **From the share sheet** (optional). In the Shortcuts app, create a shortcut that:
-  1. receives URLs or text from the share sheet;
-  2. passes them to **URL Encode**;
+  1. receives URLs and text from the share sheet;
+  2. runs them through **URL Encode**;
   3. opens `https://your-address/?magnet=` followed by the result.
 
-  The app then opens on the add sheet, with the link filled in.
+  Share a magnet link to this shortcut, and the app opens with the link already filled in.
 
-- **On a computer** (over HTTPS), Settings → "Open magnet links with this app": clicking a magnet
-  link then opens the app with it. Pasting a link or dropping a `.torrent` anywhere on the page
-  works too.
+## On a computer
 
-## Access from outside
+Paste a link or drop a `.torrent` file anywhere on the page. Over HTTPS, turn on Settings → "Open
+magnet links with this app", and magnet links you click open straight in the app.
 
-The simplest and safest way is a VPN: Tailscale, or the VPN Server package.
+## Access from outside your home
 
-Otherwise, use DSM's reverse proxy with HTTPS: Control Panel → Login Portal → Advanced → Reverse
-Proxy. Source `https://debrid.mydomain.com`, destination `http://localhost:8080`, then add
-`TRUST_PROXY=true` to the container. Create the app's account before opening this access.
+The simplest and safest option is a VPN, such as Tailscale or Synology's VPN Server package.
 
-### Without a password (Authelia…)
+Otherwise, use DSM's reverse proxy with HTTPS, in Control Panel → Login Portal → Advanced →
+Reverse Proxy: set the source to `https://debrid.example.com` and the destination to
+`http://localhost:8080`, then add `TRUST_PROXY=true` to the container. Create your account before
+you open access.
 
-With `AUTH=none`, the app no longer asks for an account: the reverse proxy decides who gets in,
-for example with Authelia or Authentik. DSM's reverse proxy cannot authenticate (it only filters
-IP addresses): you need another proxy, such as Nginx Proxy Manager, Traefik or Caddy.
+### Without sign-in (Authelia…)
 
-The app must then be reachable **only through that proxy**: don't publish port `8080` on the
-network (put it on the same Docker network as the proxy, or publish `127.0.0.1:8080:8080`).
+With `AUTH=none`, the app no longer asks anyone to sign in: your reverse proxy decides who gets
+in, for example with Authelia or Authentik. DSM's reverse proxy can't do that (it only filters IP
+addresses), so you need another one, such as Nginx Proxy Manager, Traefik or Caddy.
+
+The app must then be reachable **only through that proxy**. Don't expose port `8080` to your
+network: put the app on the same Docker network as the proxy, or publish `127.0.0.1:8080:8080`.
 
 ## Good to know
 
-- **AllDebrid** refuses server and VPN IP addresses: the app must run at home, and the NAS is the
-  perfect place.
-- **NAS address.**
-  - From the container, `localhost` is not the NAS: use its IP address.
-  - If DSM redirects HTTP to HTTPS, enter the HTTPS address directly (port 5001), turning on
-    "Self-signed certificate" if needed.
+- **AllDebrid blocks server and VPN IP addresses**, so the app has to run at home. Your NAS is the
+  perfect place for it.
+- **The NAS address.** Inside the container, `localhost` isn't the NAS: use its IP address. If DSM
+  redirects HTTP to HTTPS, enter the HTTPS address (port 5001) directly, and turn on "Self-signed
+  certificate" if needed.
 
 ## Development
 
 ```bash
 npm install
-npm run demo          # all in one: http://localhost:5173, with a fake NAS and sample downloads
+npm run demo          # http://localhost:5173, with a fake NAS and sample downloads
 ```
 
-`npm run demo` starts the web app and the API, both reloaded on every change, and fake versions of
-the NAS and AllDebrid, with sample settings and downloads. Sign in with `demo` / `demo1234`. With
-`DEMO_SEED=0`, the app starts as on a first start; accounts of the fake NAS, to connect Download
-Station:
+`npm run demo` starts the web app and the API with live reload, along with fake versions of the
+NAS and AllDebrid, sample settings and a few downloads. Sign in with `demo` / `demo1234`. To go
+through the first start instead, set `DEMO_SEED=0`, then connect Download Station with one of the
+fake NAS accounts:
 
-- `syno-debrid` / `syno-debrid` or `paul` / `paul`;
-- `secure` / `secure`: 2-step verification, code `123456`.
+- `syno-debrid` / `syno-debrid`, or `paul` / `paul`;
+- `secure` / `secure`, with 2-step verification (code `123456`).
 
-To work with a real NAS, copy `.env.example` to `.env`, then run `npm run dev` (API on :8080, web
-app on http://localhost:5173): the NAS address is entered in the app.
+To work with a real NAS, copy `.env.example` to `.env` and run `npm run dev` (API on :8080, web app
+on http://localhost:5173), then enter the NAS address in the app.
 
 ```bash
 npm test              # tests (Vitest)
@@ -230,26 +238,26 @@ npm run build && npm start
 npm run build && npm run screenshots   # README screenshots (Playwright's Chromium, or CHROMIUM_PATH)
 ```
 
-Stack: Node.js 24, TypeScript, [Hono](https://hono.dev) on the server, [Lit](https://lit.dev) and
-[Vite](https://vite.dev) for the web app.
+Under the hood: Node.js 24 and TypeScript, [Hono](https://hono.dev) for the server,
+[Lit](https://lit.dev) and [Vite](https://vite.dev) for the web app.
 
-| Folder               | Content                                                           |
+| Folder               | Contents                                                          |
 | -------------------- | ----------------------------------------------------------------- |
 | `src/server/`        | API, account, NAS connection, download tracking (`jobs.ts`)       |
 | `src/server/nas/`    | DSM client: login, Download Station, File Station                 |
 | `src/server/debrid/` | AllDebrid                                                         |
 | `src/web/`           | Web app (Lit components)                                          |
-| `src/shared/`        | API types, reading magnet links and `.torrent` files              |
+| `src/shared/`        | API types, magnet link and `.torrent` parsing                     |
 | `test/`              | Tests, and fake versions of the NAS and AllDebrid (`test/mocks/`) |
 
-The Docker images (amd64 and arm64) are built by GitHub Actions and published to
+GitHub Actions builds the Docker images (amd64 and arm64) and publishes them to
 `ghcr.io/piitaya/syno-debrid` on every push to `main` and every `v*` tag.
 
 ## Project status
 
-The app has been tried on a real Synology NAS with AllDebrid. It is also tested end to end against
-fake versions of the DSM, Download Station, File Station and AllDebrid APIs, written from their
-official documentation.
+Syno Debrid has been tried on a real Synology NAS with AllDebrid. Its tests also cover the whole
+flow end to end, against fake versions of the DSM, Download Station, File Station and AllDebrid
+APIs built from their official documentation.
 
-Syno Debrid is neither affiliated with nor endorsed by Synology. Synology, DSM and Download Station
-are trademarks of Synology Inc.
+Syno Debrid is an independent project, not affiliated with Synology. Synology, DSM and Download
+Station are trademarks of Synology Inc.
