@@ -41,7 +41,7 @@
 - **No P2P on your NAS.** AllDebrid downloads the torrent, then your NAS fetches the files from
   AllDebrid over HTTPS.
 - **Magnet links and `.torrent` files.** Paste one or more magnet links (or plain hashes), or add
-  a `.torrent` file: drag and drop it on a computer, or pick it in the Files app on an iPhone.
+  a `.torrent` file: drag and drop it on a computer, or pick it from your files on a phone.
 - **Straight to the right folder.** Set up destinations such as Movies → `video/Movies` or TV
   Shows → `video/TV` by browsing your NAS, creating folders along the way if needed. Then pick one
   each time you add a download; the app remembers your last choice.
@@ -53,15 +53,15 @@
   proxy that handles sign-in (Authelia…). The app creates the downloads with a DSM account of your
   choice, ideally a dedicated one, and logs back in by itself, so downloads keep going without
   you.
-- **Made for the iPhone.** Add it to your home screen. It follows dark mode and speaks English and
-  French.
+- **Made for your phone.** A web app you add to your home screen, on iPhone or Android. It follows
+  dark mode and speaks English and French.
 - **Lightweight.** A Docker image of about 60 MB (amd64 and arm64), no database.
 
 ## How it works
 
 ```mermaid
 sequenceDiagram
-    participant You as iPhone / computer
+    participant You as Phone / computer
     participant App as Syno Debrid
     participant Debrid as AllDebrid
     participant DS as Download Station
@@ -169,13 +169,14 @@ set up in the app. Everything else is an environment variable:
   most 6 failed DSM logins every 5 minutes, and never retries a refused password. Signing in to
   the app doesn't involve DSM; it is limited to 5 failed attempts per IP address every 15 minutes.
 
-## On the iPhone
+## On a phone
 
-- **Home screen.** In Safari, tap Share → "Add to Home Screen".
+- **Home screen.** On iPhone, in Safari, tap Share → "Add to Home Screen". On Android, in Chrome,
+  open the ⋮ menu → "Add to Home screen".
 - **Magnet link.** Copy it, tap **+**, then **Paste** (HTTPS only), or long-press in the text
   field.
-- **`.torrent` file.** The **Choose a .torrent file** button opens the Files app.
-- **From the share sheet** (optional). In the Shortcuts app, create a shortcut that:
+- **`.torrent` file.** The **Choose a .torrent file** button opens your files.
+- **From the iPhone share sheet** (optional). In the Shortcuts app, create a shortcut that:
   1. receives URLs and text from the share sheet;
   2. runs them through **URL Encode**;
   3. opens `https://your-address/?magnet=` followed by the result.

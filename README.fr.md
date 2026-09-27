@@ -41,8 +41,8 @@
 - **Pas de P2P sur votre NAS.** AllDebrid télécharge le torrent, puis votre NAS récupère les
   fichiers chez AllDebrid, en HTTPS.
 - **Liens magnet et fichiers `.torrent`.** Collez un ou plusieurs liens magnet (ou de simples
-  hash), ou ajoutez un fichier `.torrent` : par glisser-déposer sur ordinateur, depuis l'app
-  Fichiers sur iPhone.
+  hash), ou ajoutez un fichier `.torrent` : par glisser-déposer sur ordinateur, ou depuis vos
+  fichiers sur téléphone.
 - **Directement dans le bon dossier.** Créez vos destinations (Films → `video/Films`, Séries →
   `video/Séries`…) en parcourant les dossiers du NAS, et créez-en de nouveaux au passage si
   besoin. Vous n'avez plus qu'à en choisir une à chaque ajout ; l'app retient votre dernier choix.
@@ -54,15 +54,15 @@
   mot de passe derrière un proxy qui gère la connexion (Authelia…). L'app, elle, crée les
   téléchargements avec le compte DSM de votre choix, idéalement un compte dédié, et s'y reconnecte
   toute seule : les téléchargements continuent sans vous.
-- **Pensée pour l'iPhone.** Ajoutez-la à l'écran d'accueil. Elle suit le mode sombre et parle
-  français et anglais.
+- **Pensée pour le téléphone.** Une web app à ajouter à l'écran d'accueil, sur iPhone comme sur
+  Android. Elle suit le mode sombre et parle français et anglais.
 - **Légère.** Une image Docker d'environ 60 Mo (amd64 et arm64), sans base de données.
 
 ## Comment ça marche
 
 ```mermaid
 sequenceDiagram
-    participant Vous as iPhone / ordinateur
+    participant Vous as Téléphone / ordinateur
     participant App as Syno Debrid
     participant Debrid as AllDebrid
     participant DS as Download Station
@@ -174,13 +174,15 @@ configurent dans l'app. Le reste passe par des variables d'environnement :
   mot de passe refusé. La connexion à l'app, elle, ne passe pas par DSM : elle est limitée à 5
   échecs par adresse IP et par quart d'heure.
 
-## Sur iPhone
+## Sur téléphone
 
-- **Écran d'accueil.** Dans Safari, touchez Partager → « Sur l'écran d'accueil ».
+- **Écran d'accueil.** Sur iPhone, dans Safari, touchez Partager → « Sur l'écran d'accueil ». Sur
+  Android, dans Chrome, ouvrez le menu ⋮ → « Ajouter à l'écran d'accueil ».
 - **Lien magnet.** Copiez-le, touchez **+**, puis **Coller** (en HTTPS uniquement), ou faites un
   appui long dans le champ.
-- **Fichier `.torrent`.** Le bouton **Choisir un fichier .torrent** ouvre l'app Fichiers.
-- **Depuis la feuille de partage** (facultatif). Dans l'app Raccourcis, créez un raccourci qui :
+- **Fichier `.torrent`.** Le bouton **Choisir un fichier .torrent** ouvre vos fichiers.
+- **Depuis la feuille de partage de l'iPhone** (facultatif). Dans l'app Raccourcis, créez un
+  raccourci qui :
   1. reçoit des URL et du texte depuis la feuille de partage ;
   2. les passe dans **Encoder l'URL** ;
   3. ouvre `https://votre-adresse/?magnet=` suivi du résultat.
