@@ -1,6 +1,6 @@
 import type { ErrorCode, ProviderAccount } from '../../shared/types.js';
 import { AppError } from '../errors.js';
-import { httpError, requestJson, USER_AGENT } from './http.js';
+import { log, redact } from '../logger.js';
 import type {
   AddedTorrent,
   DebridContent,
@@ -86,26 +86,41 @@ const toError = (error: { code: string; message?: string }) =>
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export class AllDebrid implements DebridProvider {
-  readonly id = 'alldebrid' as const;
+const AGENT = 'syno-debrid';
+const TIMEOUT_MS = 30_000;
 
+export class AllDebrid implements DebridProvider {
   constructor(
     private readonly apiKey: string,
     private readonly baseUrl: string,
   ) {}
 
   private async call<T>(path: string, body?: URLSearchParams | FormData): Promise<T> {
-    const url = `${this.baseUrl}/${path}?agent=${USER_AGENT}`;
-    const { status, data } = await requestJson<Envelope<T>>(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.apiKey}` },
-      body,
-    });
+    const url = `${this.baseUrl}/${path}?agent=${AGENT}`;
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.apiKey}`, 'User-Agent': AGENT },
+        body,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (error) {
+      const cause = (error as Error & { cause?: Error }).cause;
+      log.debug(`Request failed: ${redact(url)}`, cause ?? error);
+      throw new AppError('provider_unreachable', cause?.message ?? (error as Error).message);
+    }
+    log.debug(`POST ${redact(url)} → ${response.status}`);
+    const data = (await response.json().catch(() => null)) as Envelope<T> | null;
     if (data?.status === 'success' && data.data !== undefined) return data.data;
     if (data?.error) throw toError(data.error);
+    const { status } = response;
     // The throttle answers 503 with an empty body.
     if (status === 503) throw new AppError('provider_rate_limited', 'HTTP 503');
-    throw httpError(status);
+    if (status === 401 || status === 403) throw new AppError('provider_auth');
+    if (status === 429) throw new AppError('provider_rate_limited');
+    if (status >= 500) throw new AppError('provider_unreachable', `HTTP ${status}`);
+    throw new AppError('provider_error', `HTTP ${status}`);
   }
 
   async account(): Promise<ProviderAccount> {
@@ -226,7 +241,7 @@ export class AllDebrid implements DebridProvider {
     return { name, multiFile: true, files: walk(tree, []) };
   }
 
-  async unlock(_id: string, file: DebridFile): Promise<string> {
+  async unlock(file: DebridFile): Promise<string> {
     const data = await this.call<{ link?: string; delayed?: number }>(
       'v4/link/unlock',
       new URLSearchParams({ link: file.ref }),

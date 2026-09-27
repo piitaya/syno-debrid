@@ -1,8 +1,8 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { keyed } from 'lit/directives/keyed.js';
-import { PROVIDERS, type JobFileView, type JobView } from '../../shared/types.js';
-import { api, ApiError } from '../api.js';
+import type { JobFileView, JobView } from '../../shared/types.js';
+import { api, errorInfo } from '../api.js';
 import { breakable, formatBytes, formatPercent } from '../format.js';
 import { errorMessage, locale, t } from '../i18n.js';
 import { mdiAlertCircleOutline, mdiCheckCircle } from '../icons.js';
@@ -73,7 +73,7 @@ export class DdsDownloadSheet extends LitElement {
     try {
       await action();
     } catch (error) {
-      this.error = errorMessage(error instanceof ApiError ? error.info.code : 'internal');
+      this.error = errorMessage(errorInfo(error).code);
     } finally {
       this.busy = false;
     }
@@ -134,7 +134,9 @@ export class DdsDownloadSheet extends LitElement {
                 <dds-icon class="warning-text" .path=${mdiAlertCircleOutline}></dds-icon>
                 <div class="notice-text">
                   <p>${t('downloads.waitingNas')}</p>
-                  <a href="#/settings" @click=${() => this.sheet.close()}>${t('setup.open')}</a>
+                  <a href="#/settings" @click=${() => this.sheet.close()}>
+                    ${t('common.openSettings')}
+                  </a>
                 </div>
               </div>`
             : nothing
@@ -160,7 +162,6 @@ export class DdsDownloadSheet extends LitElement {
 
       <section class="section">
         <div class="group info">
-          ${this.renderInfo(t('downloads.service'), PROVIDERS[job.provider].name)}
           ${job.categoryName ? this.renderInfo(t('downloads.destination'), job.categoryName) : nothing}
           ${job.size ? this.renderInfo(t('downloads.size'), formatBytes(job.size)) : nothing}
           ${this.renderInfo(t('downloads.added'), formatDateTime(job.createdAt))}
@@ -302,29 +303,6 @@ export class DdsDownloadSheet extends LitElement {
         margin-top: 8px;
       }
 
-      .percent {
-        flex: none;
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--text-secondary);
-      }
-
-      .notice.neutral {
-        color: var(--text-secondary);
-        background: var(--bg-elevated);
-      }
-
-      .notice-text {
-        display: grid;
-        gap: 2px;
-        min-width: 0;
-      }
-
-      .notice-text a {
-        justify-self: start;
-        font-weight: 600;
-      }
-
       .notice .raw {
         font-size: 12px;
         color: var(--text-secondary);
@@ -350,10 +328,6 @@ export class DdsDownloadSheet extends LitElement {
 
       .path {
         overflow-wrap: anywhere;
-      }
-
-      .section-header .count {
-        font-weight: 400;
       }
 
       .file .row-title {
@@ -383,10 +357,6 @@ export class DdsDownloadSheet extends LitElement {
       .more {
         font-size: 13px;
         color: var(--text-secondary);
-      }
-
-      .row:focus-visible {
-        box-shadow: inset var(--focus-ring);
       }
     `,
   ];

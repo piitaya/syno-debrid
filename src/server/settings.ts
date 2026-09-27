@@ -25,9 +25,7 @@ export interface StoredNas {
 export interface StoredSettings {
   nas: StoredNas | null;
   apiKeys: Partial<Record<ProviderId, string>>;
-  defaultProvider: ProviderId | null;
   categories: Category[];
-  defaultCategoryId: string | null;
   createSubfolder: boolean;
   deleteFromDebrid: boolean;
 }
@@ -35,9 +33,7 @@ export interface StoredSettings {
 export const defaultSettings = (): StoredSettings => ({
   nas: null,
   apiKeys: {},
-  defaultProvider: null,
   categories: [],
-  defaultCategoryId: null,
   createSubfolder: true,
   deleteFromDebrid: false,
 });
@@ -80,8 +76,6 @@ function sanitizeCategories(input: unknown): Category[] {
 }
 
 export class Settings {
-  private readonly listeners = new Set<() => void>();
-
   constructor(
     private readonly file: JsonFile<StoredSettings>,
     private readonly env: Env,
@@ -91,11 +85,6 @@ export class Settings {
 
   private get data(): StoredSettings {
     return this.file.data;
-  }
-
-  onChange(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
   }
 
   get nas(): StoredNas | null {
@@ -115,12 +104,6 @@ export class Settings {
     return PROVIDER_IDS.filter((id) => this.apiKey(id) !== null);
   }
 
-  defaultProvider(): ProviderId | null {
-    const configured = this.configuredProviders();
-    const stored = this.data.defaultProvider;
-    return stored && configured.includes(stored) ? stored : (configured[0] ?? null);
-  }
-
   category(id: string): Category | null {
     return this.data.categories.find((category) => category.id === id) ?? null;
   }
@@ -134,10 +117,6 @@ export class Settings {
   }
 
   toPublic(): AppSettings {
-    const categories = this.data.categories;
-    const defaultCategoryId = categories.some((c) => c.id === this.data.defaultCategoryId)
-      ? this.data.defaultCategoryId
-      : (categories[0]?.id ?? null);
     const nas = this.data.nas;
     return {
       nas: nas ? { url: nas.url, account: nas.account, insecureTls: nas.insecureTls } : null,
@@ -146,9 +125,7 @@ export class Settings {
         configured: this.apiKey(id) !== null,
         fromEnv: this.env.providerKeys[id] !== undefined,
       })),
-      defaultProvider: this.defaultProvider(),
-      categories,
-      defaultCategoryId,
+      categories: this.data.categories,
       createSubfolder: this.data.createSubfolder,
       deleteFromDebrid: this.data.deleteFromDebrid,
     };
@@ -158,16 +135,6 @@ export class Settings {
     const next: StoredSettings = { ...this.data, apiKeys: { ...this.data.apiKeys } };
 
     if (patch.categories !== undefined) next.categories = sanitizeCategories(patch.categories);
-    if (patch.defaultCategoryId !== undefined) {
-      next.defaultCategoryId =
-        typeof patch.defaultCategoryId === 'string' ? patch.defaultCategoryId : null;
-    }
-    if (patch.defaultProvider !== undefined) {
-      if (patch.defaultProvider !== null && !isProviderId(patch.defaultProvider)) {
-        throw new HttpError(400, 'invalid_request', 'defaultProvider');
-      }
-      next.defaultProvider = patch.defaultProvider;
-    }
     if (typeof patch.createSubfolder === 'boolean') next.createSubfolder = patch.createSubfolder;
     if (typeof patch.deleteFromDebrid === 'boolean') next.deleteFromDebrid = patch.deleteFromDebrid;
 
@@ -181,7 +148,6 @@ export class Settings {
 
     this.file.data = next;
     this.file.save();
-    for (const listener of this.listeners) listener();
     return this.toPublic();
   }
 }

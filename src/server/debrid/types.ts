@@ -1,4 +1,4 @@
-import type { ProviderAccount, ProviderId } from '../../shared/types.js';
+import type { ProviderAccount } from '../../shared/types.js';
 import type { AppError } from '../errors.js';
 
 export interface AddedTorrent {
@@ -18,8 +18,6 @@ export interface DebridStatus {
   /** Raw status reported by the service. */
   detail: string | null;
   error?: AppError;
-  /** The service gave the torrent a new id (e.g. once out of a queue). */
-  id?: string;
 }
 
 export interface DebridFile {
@@ -39,15 +37,13 @@ export interface DebridContent {
 }
 
 export interface DebridProvider {
-  readonly id: ProviderId;
   account(): Promise<ProviderAccount>;
-  /** `hash`: info-hash of the torrent, when known. */
-  addMagnet(magnet: string, hash: string | null): Promise<AddedTorrent>;
-  addTorrent(data: Uint8Array, fileName: string, hash: string | null): Promise<AddedTorrent>;
+  addMagnet(magnet: string): Promise<AddedTorrent>;
+  addTorrent(data: Uint8Array, fileName: string): Promise<AddedTorrent>;
   status(id: string): Promise<DebridStatus>;
   /** Files of a ready torrent. */
   files(id: string): Promise<DebridContent>;
   /** Direct HTTPS download URL of a file. */
-  unlock(id: string, file: DebridFile): Promise<string>;
+  unlock(file: DebridFile): Promise<string>;
   delete(id: string): Promise<void>;
 }

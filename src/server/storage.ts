@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { log } from './logger.js';
 
 /**
@@ -11,7 +10,6 @@ import { log } from './logger.js';
 export class JsonFile<T> {
   data: T;
   private timer: NodeJS.Timeout | null = null;
-  private writing: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly path: string,
@@ -40,45 +38,25 @@ export class JsonFile<T> {
 
   /** Schedules a write of the current data. */
   save(): void {
-    if (this.timer) return;
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.flush();
+    this.timer ??= setTimeout(() => {
+      try {
+        this.flush();
+      } catch (error) {
+        log.error(`Failed to write ${this.path}`, error);
+      }
     }, 100);
   }
 
   /** Writes the current data now. */
-  flush(): Promise<void> {
+  flush(): void {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    const content = JSON.stringify(this.data, null, 2);
-    this.writing = this.writing
-      .then(async () => {
-        const temp = `${this.path}.tmp`;
-        await writeFile(temp, content, { mode: 0o600 });
-        await rename(temp, this.path);
-      })
-      .catch((error: unknown) => log.error(`Failed to write ${this.path}`, error));
-    return this.writing;
-  }
-
-  /** Synchronous write, for shutdown paths. */
-  flushSync(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    // Not the temp file of flush(): a write may still be under way in the background.
-    const temp = `${this.path}.sync.tmp`;
+    const temp = `${this.path}.tmp`;
     writeFileSync(temp, JSON.stringify(this.data, null, 2), { mode: 0o600 });
     renameSync(temp, this.path);
   }
-}
-
-export function ensureDir(path: string): void {
-  mkdirSync(path, { recursive: true });
 }
 
 /**
@@ -97,8 +75,4 @@ export function loadSecretKey(dir: string): Buffer {
   const key = randomBytes(32);
   writeFileSync(path, `${key.toString('base64')}\n`, { mode: 0o600 });
   return key;
-}
-
-export function ensureParentDir(path: string): void {
-  ensureDir(dirname(path));
 }

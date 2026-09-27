@@ -72,15 +72,13 @@ export function createMockDebrid(options: { now?: () => number } = {}) {
   const fromMagnet = (magnet: string) => {
     const info = parseMagnet(magnet);
     if (!info) return null;
-    return add(info.name ?? `noname-${info.hash?.slice(0, 8)}`, info.hash ?? '');
+    return add(info.name ?? `noname-${info.hash.slice(0, 8)}`, info.hash);
   };
 
   const fromTorrentFile = async (file: File) => {
     const data = new Uint8Array(await file.arrayBuffer());
     const meta = parseTorrent(data);
-    const hash = createHash('sha1')
-      .update(data.subarray(...meta.infoRange))
-      .digest('hex');
+    const hash = createHash('sha1').update(data).digest('hex');
     const multiFile = meta.files.length > 1 || meta.files[0]?.path !== meta.name;
     return add(meta.name, hash, meta.files, multiFile);
   };
@@ -92,9 +90,9 @@ export function createMockDebrid(options: { now?: () => number } = {}) {
   const totalSize = (torrent: MockTorrent) => torrent.files.reduce((sum, f) => sum + f.size, 0);
   const origin = (c: Context) => new URL(c.req.url).origin;
   const fileName = (path: string) => path.split('/').pop()!;
-  const directLink = (c: Context, provider: string, torrent: MockTorrent, index: number) => {
+  const directLink = (c: Context, torrent: MockTorrent, index: number) => {
     const file = torrent.files[index]!;
-    return `${origin(c)}/cdn/${provider}/${torrent.id}/${encodeURIComponent(fileName(file.path))}?size=${file.size}`;
+    return `${origin(c)}/cdn/${torrent.id}/${encodeURIComponent(fileName(file.path))}?size=${file.size}`;
   };
   const bearer = (c: Context) => c.req.header('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
   const live = (id: string | undefined) => {
@@ -102,19 +100,16 @@ export function createMockDebrid(options: { now?: () => number } = {}) {
     return torrent && !torrent.deleted ? torrent : null;
   };
 
-  const app = new Hono();
-
-  // ---------------------------------------------------------------- AllDebrid
-  const ad = new Hono();
+  const app = new Hono().basePath('/alldebrid');
   const adOk = (c: Context, data: unknown) => c.json({ status: 'success', data });
   const adError = (c: Context, code: string, message = code) =>
     c.json({ status: 'error', error: { code, message } });
 
-  ad.use('*', async (c, next) => {
+  app.use('*', async (c, next) => {
     if (bearer(c) === 'bad') return adError(c, 'AUTH_BAD_APIKEY', 'The auth apikey is invalid');
     await next();
   });
-  ad.post('/v4/user', (c) =>
+  app.post('/v4/user', (c) =>
     adOk(c, {
       user: {
         username: 'demo-alldebrid',
@@ -123,7 +118,7 @@ export function createMockDebrid(options: { now?: () => number } = {}) {
       },
     }),
   );
-  ad.post('/v4/magnet/upload', async (c) => {
+  app.post('/v4/magnet/upload', async (c) => {
     const body = await c.req.parseBody({ all: true });
     const values = [body['magnets[]']].flat().filter((v): v is string => typeof v === 'string');
     return adOk(c, {
@@ -142,7 +137,7 @@ export function createMockDebrid(options: { now?: () => number } = {}) {
       }),
     });
   });
-  ad.post('/v4/magnet/upload/file', async (c) => {
+  app.post('/v4/magnet/upload/file', async (c) => {
     const body = await c.req.parseBody({ all: true });
     const files = [body['files[]']].flat().filter((v): v is File => v instanceof File);
     const results = [];
@@ -166,10 +161,7 @@ export function createMockDebrid(options: { now?: () => number } = {}) {
     }
     return adOk(c, { files: results });
   });
-  ad.post('/v4/magnet/status', (c) =>
-    c.json({ status: 'error', error: { code: 'DISCONTINUED' }, deprecated: true }),
-  );
-  ad.post('/v4.1/magnet/status', async (c) => {
+  app.post('/v4.1/magnet/status', async (c) => {
     const body = await c.req.parseBody();
     const torrent = live(String(body.id));
     if (!torrent) return adError(c, 'MAGNET_INVALID_ID');
@@ -203,7 +195,7 @@ export function createMockDebrid(options: { now?: () => number } = {}) {
       },
     });
   });
-  ad.post('/v4/magnet/files', async (c) => {
+  app.post('/v4/magnet/files', async (c) => {
     const body = await c.req.parseBody({ all: true });
     const ids = [body['id[]']].flat().map(String);
     return adOk(c, {
@@ -233,28 +225,24 @@ export function createMockDebrid(options: { now?: () => number } = {}) {
       }),
     });
   });
-  ad.post('/v4/link/unlock', async (c) => {
+  app.post('/v4/link/unlock', async (c) => {
     const body = await c.req.parseBody();
     const match = /\/f\/(\d+)-(\d+)$/.exec(String(body.link));
     const torrent = match ? live(match[1]) : null;
     if (!match || !torrent) return adError(c, 'LINK_DOWN');
     const file = torrent.files[Number(match[2])]!;
     return adOk(c, {
-      link: directLink(c, 'alldebrid', torrent, Number(match[2])),
+      link: directLink(c, torrent, Number(match[2])),
       filename: fileName(file.path),
       filesize: file.size,
     });
   });
-  ad.post('/v4/magnet/delete', async (c) => {
+  app.post('/v4/magnet/delete', async (c) => {
     const body = await c.req.parseBody();
     const torrent = live(String(body.id));
     if (!torrent) return adError(c, 'MAGNET_INVALID_ID');
     torrent.deleted = true;
     return adOk(c, { message: 'Magnet was successfully deleted' });
   });
-  app.route('/alldebrid', ad);
-
   return { app, torrents };
 }
-
-export type MockDebrid = ReturnType<typeof createMockDebrid>;

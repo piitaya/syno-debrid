@@ -24,14 +24,8 @@ export const sharedStyles = css`
   h1,
   h2,
   h3,
-  p,
-  ul {
+  p {
     margin: 0;
-  }
-
-  ul {
-    padding: 0;
-    list-style: none;
   }
 
   a {
@@ -52,10 +46,6 @@ export const sharedStyles = css`
   /* Text */
   .secondary {
     color: var(--text-secondary);
-  }
-
-  .tertiary {
-    color: var(--text-tertiary);
   }
 
   .small {
@@ -156,15 +146,6 @@ export const sharedStyles = css`
     opacity: 0.8;
   }
 
-  .btn-destructive {
-    color: var(--danger);
-    background: transparent;
-  }
-
-  .btn-destructive:active {
-    background: var(--danger-fill);
-  }
-
   .btn-sm {
     min-height: 30px;
     padding: 0 10px;
@@ -215,50 +196,6 @@ export const sharedStyles = css`
     --icon-size: 20px;
   }
 
-  /* Form fields */
-  .field {
-    display: block;
-    width: 100%;
-    min-height: var(--control-height);
-    padding: 8px 12px;
-    border: none;
-    border-radius: var(--radius);
-    font: inherit;
-    /* 16px keeps iOS Safari from zooming in on focus. */
-    font-size: 16px;
-    color: var(--text);
-    background: var(--fill);
-    outline: none;
-    transition: box-shadow 0.15s ease;
-  }
-
-  .field::placeholder {
-    color: var(--text-tertiary);
-  }
-
-  .field:focus {
-    box-shadow: var(--focus-ring);
-  }
-
-  textarea.field {
-    resize: vertical;
-    line-height: 1.4;
-  }
-
-  @media (pointer: fine) {
-    .field {
-      font-size: 15px;
-    }
-  }
-
-  .label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-  }
-
   /* Grouped lists (iOS settings style) */
   .section + .section {
     margin-top: 28px;
@@ -274,6 +211,14 @@ export const sharedStyles = css`
     font-size: 13px;
     font-weight: 600;
     color: var(--text-secondary);
+  }
+
+  .section-header h2 {
+    font: inherit;
+  }
+
+  .section-header .count {
+    font-weight: 400;
   }
 
   /* Keeps a finger-sized target without growing the header. */
@@ -328,6 +273,11 @@ export const sharedStyles = css`
 
   .group.with-icons {
     --separator-inset: 56px;
+  }
+
+  /* Inside the ring: the group's rounded edges would cut it. */
+  .row:focus-visible {
+    box-shadow: inset var(--focus-ring);
   }
 
   button.row,
@@ -407,44 +357,13 @@ export const sharedStyles = css`
     color: var(--danger);
   }
 
-  .row.action {
-    justify-content: center;
+  .row.accent {
     color: var(--accent);
   }
 
-  /* Segmented control */
-  .segmented {
-    display: flex;
-    gap: 2px;
-    padding: 2px;
-    border-radius: 9px;
-    background: var(--fill);
-  }
-
-  .segmented button {
-    flex: 1;
-    min-height: 30px;
-    padding: 0 12px;
-    border: none;
-    border-radius: 7px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text);
-    background: transparent;
-    cursor: pointer;
-  }
-
-  @media (pointer: coarse) {
-    .segmented button {
-      min-height: 36px;
-      font-size: 15px;
-    }
-  }
-
-  .segmented button[aria-pressed='true'] {
-    font-weight: 600;
-    background: var(--bg-elevated);
-    box-shadow: var(--shadow-control);
+  .row.action {
+    justify-content: center;
+    color: var(--accent);
   }
 
   /* Switch */
@@ -481,11 +400,6 @@ export const sharedStyles = css`
 
   input.switch:checked::after {
     transform: translateX(18px);
-  }
-
-  input.switch:disabled {
-    opacity: 0.4;
-    cursor: default;
   }
 
   /* Progress */
@@ -534,6 +448,12 @@ export const sharedStyles = css`
     }
   }
 
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
   /* Inline notice (errors, warnings) */
   .notice {
     display: flex;
@@ -549,6 +469,22 @@ export const sharedStyles = css`
   .notice dds-icon {
     --icon-size: 18px;
     flex: none;
+  }
+
+  .notice.neutral {
+    color: var(--text-secondary);
+    background: var(--bg-elevated);
+  }
+
+  .notice-text {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .notice-text a {
+    justify-self: start;
+    font-weight: 600;
   }
 
   /* Pressed styles (:active, above) win over these. */
@@ -569,10 +505,6 @@ export const sharedStyles = css`
       background: var(--accent-fill);
     }
 
-    .btn-destructive:hover:not(:active) {
-      background: var(--danger-fill);
-    }
-
     .icon-btn:hover:not(:disabled, :active) {
       background: var(--fill);
     }
@@ -591,6 +523,53 @@ export const sharedStyles = css`
     *::after {
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
+    }
+  }
+`;
+
+/** Borderless input filling a row (the row is the field). */
+export const inlineInputStyles = css`
+  /* A row holding a field. */
+  .input-row {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .inline-input {
+    flex: 1;
+    min-width: 0;
+    min-height: 32px;
+    padding: 0;
+    border: none;
+    font: inherit;
+    /* 16px keeps iOS Safari from zooming in on focus. */
+    font-size: 16px;
+    color: var(--text);
+    background: transparent;
+    outline: none;
+  }
+
+  .inline-input:focus-visible {
+    box-shadow: none;
+  }
+
+  .inline-input::placeholder {
+    font-family: var(--font);
+    color: var(--text-tertiary);
+  }
+
+  .inline-input.mono-input {
+    font-family: var(--font-mono);
+  }
+
+  @media (pointer: fine) {
+    .inline-input {
+      font-size: 15px;
+    }
+
+    /* Keyboard and mouse: the group shows where typing goes (touch screens show the keyboard). */
+    .group:has(.inline-input:focus) {
+      box-shadow: var(--focus-ring);
     }
   }
 `;

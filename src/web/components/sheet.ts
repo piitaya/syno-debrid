@@ -5,6 +5,9 @@ import { mdiAlertCircleOutline, mdiClose } from '../icons.js';
 import './icon.js';
 import { sharedStyles } from './styles.js';
 
+/** Fields in which Enter presses the primary button. */
+const TEXT_INPUTS = new Set(['text', 'password', 'url', 'email', 'search', 'tel', 'number']);
+
 /** Open sheets, counted to keep the page behind them still (sheets can be stacked). */
 let openSheets = 0;
 
@@ -31,6 +34,8 @@ function unlockPageScroll(): void {
  * Errors of the sheet's actions go in `error`: they show above the footer, whatever the scroll
  * position (toasts would be hidden behind the sheet).
  *
+ * Enter in a text field presses the primary button, unless the field handles it itself.
+ *
  * Events: `dds-primary` when the primary button is pressed, `dds-closed` once closed.
  */
 @customElement('dds-sheet')
@@ -41,8 +46,6 @@ export class DdsSheet extends LitElement {
   @property({ type: Boolean }) primaryDisabled = false;
   /** Shows a spinner in the primary button. */
   @property({ type: Boolean }) busy = false;
-  /** Wider panel on large screens. */
-  @property({ type: Boolean }) wide = false;
   /** Fixed height, for content that changes while the sheet is open (folder picker). */
   @property({ type: Boolean }) tall = false;
   /** Error message shown above the footer. */
@@ -113,10 +116,17 @@ export class DdsSheet extends LitElement {
     this.dispatchEvent(new CustomEvent('dds-primary'));
   }
 
+  private onKeyDown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.isComposing || event.defaultPrevented) return;
+    const field = event.composedPath()[0];
+    if (!(field instanceof HTMLInputElement) || !TEXT_INPUTS.has(field.type)) return;
+    event.preventDefault();
+    if (this.primaryLabel) this.primary();
+  }
+
   override render() {
     const footer = !!this.primaryLabel;
     const classes = [
-      this.wide ? 'wide' : '',
       this.tall ? 'tall' : '',
       footer ? 'has-footer' : '',
       this.error ? 'has-error' : '',
@@ -127,6 +137,7 @@ export class DdsSheet extends LitElement {
         aria-label=${this.heading}
         @click=${this.onClick}
         @close=${this.onClose}
+        @keydown=${this.onKeyDown}
       >
         <header class=${this.scrolled ? 'scrolled' : ''}>
           <h2>${this.heading}</h2>
@@ -205,12 +216,6 @@ export class DdsSheet extends LitElement {
       @keyframes slide-up {
         from {
           transform: translateY(100%);
-        }
-      }
-
-      @keyframes fade-in {
-        from {
-          opacity: 0;
         }
       }
 
@@ -355,10 +360,6 @@ export class DdsSheet extends LitElement {
           max-height: min(760px, calc(100dvh - 64px));
           margin: auto;
           border-radius: 14px;
-        }
-
-        dialog.wide {
-          width: min(640px, calc(100% - 48px));
         }
 
         dialog.tall {

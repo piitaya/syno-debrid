@@ -2,14 +2,14 @@ import { LitElement, css, html, nothing } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { live } from 'lit/directives/live.js';
 import type { ErrorCode, FolderEntry } from '../../shared/types.js';
-import { api, ApiError } from '../api.js';
+import { api, errorInfo } from '../api.js';
 import { breakable } from '../format.js';
 import { errorMessage, locale, t } from '../i18n.js';
 import { mdiAlertCircleOutline, mdiChevronRight, mdiFolderOutline, mdiPlus } from '../icons.js';
 import './icon.js';
 import type { DdsSheet } from './sheet.js';
 import './sheet.js';
-import { sharedStyles } from './styles.js';
+import { inlineInputStyles, sharedStyles } from './styles.js';
 
 /**
  * Normalizes a Download Station path like the server does (`/video//Films/` → `video/Films`);
@@ -23,50 +23,6 @@ export function normalizePath(value: string): string {
     .filter(Boolean);
   return parts.some((part) => part === '.' || part === '..') ? '' : parts.join('/');
 }
-
-/** Borderless input filling a row (the row is the field). Shared by the settings sheets. */
-export const inlineInputStyles = css`
-  .inline-input {
-    flex: 1;
-    min-width: 0;
-    min-height: 32px;
-    padding: 0;
-    border: none;
-    font: inherit;
-    /* 16px keeps iOS Safari from zooming in on focus. */
-    font-size: 16px;
-    color: var(--text);
-    background: transparent;
-    outline: none;
-  }
-
-  .inline-input:focus-visible {
-    box-shadow: none;
-  }
-
-  .inline-input::placeholder {
-    font-family: var(--font);
-    color: var(--text-tertiary);
-  }
-
-  .inline-input.mono-input {
-    font-family: var(--font-mono);
-  }
-
-  @media (pointer: fine) {
-    .inline-input {
-      font-size: 15px;
-    }
-
-    /* Keyboard and mouse: the group shows where typing goes (touch screens show the keyboard). */
-    .group:has(.inline-input:focus) {
-      box-shadow: var(--focus-ring);
-    }
-  }
-`;
-
-const errorCode = (error: unknown): ErrorCode =>
-  error instanceof ApiError ? error.info.code : 'internal';
 
 const byName = (a: FolderEntry, b: FolderEntry) =>
   a.name.localeCompare(b.name, locale, { numeric: true, sensitivity: 'base' });
@@ -133,7 +89,7 @@ export class DdsFolderPicker extends LitElement {
     } catch (error) {
       if (run !== this.loadRun) return;
       if (fallBack && path !== null) return this.load(null);
-      this.error = errorCode(error);
+      this.error = errorInfo(error).code;
       this.loading = false;
     }
   }
@@ -175,7 +131,7 @@ export class DdsFolderPicker extends LitElement {
       this.busy = false;
       await this.navigate(folder.path);
     } catch (error) {
-      this.createError = errorMessage(errorCode(error));
+      this.createError = errorMessage(errorInfo(error).code);
     } finally {
       this.busy = false;
     }
@@ -312,10 +268,6 @@ export class DdsFolderPicker extends LitElement {
     sharedStyles,
     inlineInputStyles,
     css`
-      .row:focus-visible {
-        box-shadow: inset var(--focus-ring);
-      }
-
       .crumbs {
         display: flex;
         flex-wrap: wrap;
@@ -377,10 +329,6 @@ export class DdsFolderPicker extends LitElement {
 
       .message .spinner {
         color: var(--text-tertiary);
-      }
-
-      .row.accent {
-        color: var(--accent);
       }
 
       .new-folder .btn {

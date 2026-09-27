@@ -1,25 +1,17 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { live } from 'lit/directives/live.js';
-import {
-  CATEGORY_ICONS,
-  type Category,
-  type CategoryIcon,
-  type ErrorCode,
-} from '../../shared/types.js';
-import { api, ApiError } from '../api.js';
+import { CATEGORY_ICONS, type Category, type CategoryIcon } from '../../shared/types.js';
+import { api, errorInfo } from '../api.js';
 import { errorMessage, iconLabel, t } from '../i18n.js';
-import { categoryIcon, mdiCheck, mdiFolderOpenOutline } from '../icons.js';
+import { categoryIcon, mdiFolderOpenOutline } from '../icons.js';
 import { store, StoreController } from '../store.js';
 import { confirmAction } from './confirm.js';
-import { inlineInputStyles, normalizePath, type DdsFolderPicker } from './folder-picker.js';
+import { normalizePath, type DdsFolderPicker } from './folder-picker.js';
 import './icon.js';
 import type { DdsSheet } from './sheet.js';
 import './sheet.js';
-import { sharedStyles } from './styles.js';
-
-const errorCode = (error: unknown): ErrorCode =>
-  error instanceof ApiError ? error.info.code : 'internal';
+import { inlineInputStyles, sharedStyles } from './styles.js';
 
 /** Creates or edits a destination (a named NAS folder offered when adding downloads). */
 @customElement('dds-destination-sheet')
@@ -29,7 +21,6 @@ export class DdsDestinationSheet extends LitElement {
   @state() private name = '';
   @state() private folder = '';
   @state() private icon: CategoryIcon = 'folder';
-  @state() private isDefault = false;
   @state() private saving = false;
   @state() private deleting = false;
   @state() private error = '';
@@ -50,20 +41,11 @@ export class DdsDestinationSheet extends LitElement {
     this.name = category?.name ?? '';
     this.folder = category?.destination ?? '';
     this.icon = category?.icon ?? 'folder';
-    this.isDefault = !!category && store.settings?.defaultCategoryId === category.id;
     this.error = '';
     this.missingFolder = null;
     await this.updateComplete;
     await this.sheet.show();
     if (!category && matchMedia('(pointer: fine)').matches) this.nameInput?.focus();
-  }
-
-  /** The destination is (or becomes) the default whatever the switch says. */
-  private get forcedDefault(): boolean {
-    const settings = store.settings;
-    if (!settings) return false;
-    if (!this.editing) return settings.categories.length === 0;
-    return settings.defaultCategoryId === this.editing.id;
   }
 
   /** Something differs from the destination being edited (always true for a new one). */
@@ -73,8 +55,7 @@ export class DdsDestinationSheet extends LitElement {
     return (
       this.name.trim() !== editing.name ||
       normalizePath(this.folder) !== editing.destination ||
-      this.icon !== editing.icon ||
-      this.isDefault !== (store.settings?.defaultCategoryId === editing.id)
+      this.icon !== editing.icon
     );
   }
 
@@ -123,31 +104,16 @@ export class DdsDestinationSheet extends LitElement {
     const categories = editing
       ? settings.categories.map((category) => (category.id === editing.id ? item : category))
       : [...settings.categories, item];
-    const makeDefault =
-      (this.isDefault || this.forcedDefault) && settings.defaultCategoryId !== item.id;
 
     this.saving = true;
     this.error = '';
     try {
       if (destination !== editing?.destination && !(await this.checkFolder(destination))) return;
-      let result = await api.updateSettings(
-        editing && makeDefault ? { categories, defaultCategoryId: editing.id } : { categories },
-      );
-      store.setSettings(result);
-      if (!editing && makeDefault) {
-        // The server gives the new destination its id.
-        const created =
-          result.categories.findLast((c) => c.name === name && c.destination === destination) ??
-          result.categories.at(-1);
-        if (created) {
-          result = await api.updateSettings({ defaultCategoryId: created.id });
-          store.setSettings(result);
-        }
-      }
+      store.setSettings(await api.updateSettings({ categories }));
       store.toast(t('destination.saved'), 'success');
       this.sheet.close();
     } catch (error) {
-      this.error = errorMessage(errorCode(error));
+      this.error = errorMessage(errorInfo(error).code);
     } finally {
       this.saving = false;
     }
@@ -171,16 +137,10 @@ export class DdsDestinationSheet extends LitElement {
       store.toast(t('destination.deleted'), 'success');
       this.sheet.close();
     } catch (error) {
-      this.error = errorMessage(errorCode(error));
+      this.error = errorMessage(errorInfo(error).code);
     } finally {
       this.deleting = false;
     }
-  }
-
-  private onKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || event.isComposing) return;
-    event.preventDefault();
-    void this.save();
   }
 
   override render() {
@@ -199,7 +159,7 @@ export class DdsDestinationSheet extends LitElement {
       >
         <section class="section">
           <div class="group">
-            <div class="row field-row">
+            <div class="row input-row">
               <label class="field-label" for="name">${t('destination.name')}</label>
               <input
                 id="name"
@@ -209,10 +169,9 @@ export class DdsDestinationSheet extends LitElement {
                 placeholder=${t('destination.namePlaceholder')}
                 autocomplete="off"
                 @input=${(event: Event) => (this.name = (event.target as HTMLInputElement).value)}
-                @keydown=${this.onKeyDown}
               />
             </div>
-            <div class="row field-row">
+            <div class="row input-row">
               <label class="field-label" for="folder">${t('destination.folderShort')}</label>
               <input
                 id="folder"
@@ -228,7 +187,6 @@ export class DdsDestinationSheet extends LitElement {
                   this.folder = (event.target as HTMLInputElement).value;
                   this.error = '';
                 }}
-                @keydown=${this.onKeyDown}
               />
               <button
                 class="icon-btn accent browse"
@@ -260,10 +218,6 @@ export class DdsDestinationSheet extends LitElement {
           </div>
         </section>
 
-        <section class="section">
-          <div class="group">${this.renderDefault()}</div>
-        </section>
-
         ${
           this.editing
             ? html`<section class="section">
@@ -289,39 +243,10 @@ export class DdsDestinationSheet extends LitElement {
     `;
   }
 
-  /** The default destination (or the first one) shows a check: it cannot be turned off here. */
-  private renderDefault() {
-    if (this.forcedDefault) {
-      return html`<div class="row">
-        <span class="row-main"><span class="row-title">${t('destination.default')}</span></span>
-        <dds-icon class="check" .path=${mdiCheck}></dds-icon>
-      </div>`;
-    }
-    return html`<label class="row">
-      <span class="row-main"><span class="row-title">${t('destination.default')}</span></span>
-      <input
-        type="checkbox"
-        class="switch"
-        role="switch"
-        .checked=${live(this.isDefault)}
-        @change=${(event: Event) => (this.isDefault = (event.target as HTMLInputElement).checked)}
-      />
-    </label>`;
-  }
-
   static override styles = [
     sharedStyles,
     inlineInputStyles,
     css`
-      .row:focus-visible {
-        box-shadow: inset var(--focus-ring);
-      }
-
-      .field-row {
-        padding-top: 4px;
-        padding-bottom: 4px;
-      }
-
       .field-label {
         flex: none;
         width: 76px;
@@ -329,7 +254,7 @@ export class DdsDestinationSheet extends LitElement {
         cursor: default;
       }
 
-      .field-row .browse {
+      .input-row .browse {
         margin: -4px -12px -4px -4px;
       }
 

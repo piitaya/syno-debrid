@@ -7,7 +7,7 @@ import { listen } from './serve.js';
 
 const dsm = createMockDsm({
   users: {
-    admin: { password: 'secret pass', isManager: true },
+    admin: { password: 'secret pass' },
     bob: { password: 'bob', otp: '123456' },
     eve: { password: 'eve', fileStation: false },
   },
@@ -18,7 +18,7 @@ let client: SynologyClient;
 
 beforeAll(async () => {
   server = await listen(dsm.app);
-  client = new SynologyClient({ baseUrl: server.url, insecureTls: false });
+  client = new SynologyClient(server.url, false);
 });
 afterAll(() => server.close());
 
@@ -95,26 +95,26 @@ describe('SynologyClient', () => {
     ]);
   });
 
-  it('creates, tracks and deletes download tasks', async () => {
+  it('creates, lists and deletes download tasks', async () => {
     const { sid } = await client.login({ account: 'admin', password: 'secret pass' });
-    const urls = ['https://cdn.example/a,b.mkv?size=100', 'https://cdn.example/c.mkv?size=100'];
-    const ids = await client.createDownloadTasks(sid, urls, 'video/Séries');
-    expect(ids).toHaveLength(2);
-    expect(ids.every((id) => id?.startsWith('dbid_'))).toBe(true);
+    const create = (url: string) => client.createDownloadTask(sid, url, 'video/Séries');
+    const first = await create('https://cdn.example/a,b.mkv?size=100');
+    const second = await create('https://cdn.example/c.mkv?size=100');
+    expect([first, second].every((id) => id?.startsWith('dbid_'))).toBe(true);
 
-    const tasks = await client.getTasks(sid, ids as string[]);
-    expect(tasks.map((task) => task.id).sort()).toEqual([...(ids as string[])].sort());
-    expect(tasks[0]!.uri).toContain('a%2Cb.mkv');
+    const tasks = await client.listTasks(sid);
+    expect(tasks.map((task) => task.id).sort()).toEqual([first, second].sort());
+    expect(tasks.find((task) => task.id === first)!.uri).toContain('a%2Cb.mkv');
 
-    await client.deleteTasks(sid, [ids[0]!]);
-    expect((await client.getTasks(sid, ids as string[])).map((task) => task.id)).toEqual([ids[1]]);
+    await client.deleteTasks(sid, [first!]);
+    expect((await client.listTasks(sid)).map((task) => task.id)).toEqual([second]);
   });
 
   it('reports a missing destination', async () => {
     const { sid } = await client.login({ account: 'admin', password: 'secret pass' });
-    expect(
-      await errorCode(client.createDownloadTasks(sid, ['https://x/y.mkv'], 'video/Nope')),
-    ).toBe('destination_missing');
+    expect(await errorCode(client.createDownloadTask(sid, 'https://x/y.mkv', 'video/Nope'))).toBe(
+      'destination_missing',
+    );
   });
 
   it('detects expired sessions', async () => {
@@ -142,10 +142,5 @@ describe('toTask', () => {
       size: 100,
       downloaded: 10,
     });
-  });
-
-  it('reads Download Station 2 numeric statuses', () => {
-    expect(toTask({ id: 'a', status: 5 }).status).toBe('finished');
-    expect(toTask({ id: 'b', status: 105 })).toMatchObject({ status: 'error', error: 'disk_full' });
   });
 });

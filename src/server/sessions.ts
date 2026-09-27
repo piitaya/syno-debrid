@@ -1,15 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { JsonFile } from './storage.js';
 
-export interface StoredSession {
-  createdAt: number;
-  lastSeenAt: number;
-  expiresAt: number;
-}
-
-export type SessionMap = Record<string, StoredSession>;
+/** Hash of a cookie token → when its session ends (epoch milliseconds). */
+export type SessionMap = Record<string, number>;
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+/** A session in use is extended at most this often: each extension is a write. */
 const TOUCH_INTERVAL = 60 * 60 * 1000;
 
 /** Browser sessions. The cookie holds a random token; only its hash is stored on disk. */
@@ -18,47 +14,41 @@ export class Sessions {
     private readonly file: JsonFile<SessionMap>,
     private readonly ttlMs: number,
   ) {
-    this.purgeExpired();
+    const now = Date.now();
+    for (const [key, expiresAt] of Object.entries(file.data)) {
+      if (!(typeof expiresAt === 'number' && expiresAt > now)) delete file.data[key];
+    }
+    file.save();
   }
 
-  private get map(): SessionMap {
-    return this.file.data;
-  }
-
-  create(): { token: string; session: StoredSession } {
+  /** Starts a session; returns the token for the cookie. */
+  create(): string {
     const token = randomBytes(32).toString('base64url');
-    const now = Date.now();
-    const session: StoredSession = { createdAt: now, lastSeenAt: now, expiresAt: now + this.ttlMs };
-    this.map[hashToken(token)] = session;
+    this.file.data[hashToken(token)] = Date.now() + this.ttlMs;
     this.file.save();
-    return { token, session };
+    return token;
   }
 
-  /** Returns the session for a cookie token and extends it (sliding expiration). */
-  get(token: string | undefined): StoredSession | null {
-    if (!token) return null;
+  /** Whether the token belongs to a session, which is then extended (sliding expiration). */
+  isValid(token: string): boolean {
     const key = hashToken(token);
-    const session = this.map[key];
-    if (!session) return null;
+    const expiresAt = this.file.data[key];
+    if (expiresAt === undefined) return false;
     const now = Date.now();
-    if (session.expiresAt <= now) {
-      delete this.map[key];
+    if (expiresAt <= now) {
+      delete this.file.data[key];
       this.file.save();
-      return null;
+      return false;
     }
-    if (now - session.lastSeenAt > TOUCH_INTERVAL) {
-      session.lastSeenAt = now;
-      session.expiresAt = now + this.ttlMs;
+    if (now + this.ttlMs - expiresAt > TOUCH_INTERVAL) {
+      this.file.data[key] = now + this.ttlMs;
       this.file.save();
     }
-    return session;
+    return true;
   }
 
-  delete(token: string | undefined): void {
-    if (!token) return;
-    const key = hashToken(token);
-    if (!this.map[key]) return;
-    delete this.map[key];
+  delete(token: string): void {
+    delete this.file.data[hashToken(token)];
     this.file.save();
   }
 
@@ -66,17 +56,5 @@ export class Sessions {
   clear(): void {
     this.file.data = {};
     this.file.save();
-  }
-
-  purgeExpired(): void {
-    const now = Date.now();
-    let changed = false;
-    for (const [key, session] of Object.entries(this.map)) {
-      if (session.expiresAt <= now) {
-        delete this.map[key];
-        changed = true;
-      }
-    }
-    if (changed) this.file.save();
   }
 }

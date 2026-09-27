@@ -68,14 +68,6 @@ export const authStyles = css`
     }
   }
 
-  .fields .otp {
-    letter-spacing: 0.2em;
-  }
-
-  .fields .otp::placeholder {
-    letter-spacing: normal;
-  }
-
   .hint {
     margin-top: -8px;
     padding: 0 16px;

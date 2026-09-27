@@ -1,8 +1,8 @@
 export interface MagnetInfo {
   /** Normalized magnet URI, safe to hand over to a debrid service. */
   uri: string;
-  /** Lowercase hexadecimal info-hash (v1) or multihash (v2), when present. */
-  hash: string | null;
+  /** Lowercase hexadecimal info-hash (v1) or multihash (v2). */
+  hash: string;
   /** Display name (`dn` parameter), when present. */
   name: string | null;
 }
@@ -29,24 +29,13 @@ function normalizeInfoHash(value: string): string | null {
   return null;
 }
 
-/** Returns true when the value is a bare BitTorrent v1 info-hash (hex or base32). */
-export function isInfoHash(value: string): boolean {
-  return normalizeInfoHash(value.trim()) !== null;
-}
-
 /** Parses a magnet URI. Returns null when the value is not a usable BitTorrent magnet link. */
 export function parseMagnet(value: string): MagnetInfo | null {
   // Links copied from HTML pages sometimes keep their escaped ampersands.
   const input = value.trim().replace(/&amp;/gi, '&');
   if (!/^magnet:\?/i.test(input)) return null;
 
-  let params: URLSearchParams;
-  try {
-    params = new URLSearchParams(input.slice(input.indexOf('?') + 1));
-  } catch {
-    return null;
-  }
-
+  const params = new URLSearchParams(input.slice(input.indexOf('?') + 1));
   let hash: string | null = null;
   for (const xt of params.getAll('xt')) {
     const v1 = /^urn:btih:(.+)$/i.exec(xt);
@@ -61,12 +50,6 @@ export function parseMagnet(value: string): MagnetInfo | null {
 
   const name = params.get('dn')?.trim() || null;
   return { uri: input, hash, name };
-}
-
-/** Builds a magnet URI from a bare info-hash. */
-export function magnetFromHash(hash: string): string | null {
-  const normalized = normalizeInfoHash(hash.trim());
-  return normalized ? `magnet:?xt=urn:btih:${normalized}` : null;
 }
 
 export interface ExtractedMagnets {
@@ -85,14 +68,16 @@ export function extractMagnets(text: string): ExtractedMagnets {
 
   for (const token of text.split(/\s+/)) {
     if (!token) continue;
-    const magnet = parseMagnet(token) ?? parseMagnet(magnetFromHash(token) ?? '');
+    const hash = normalizeInfoHash(token);
+    const magnet =
+      parseMagnet(token) ??
+      (hash ? { uri: `magnet:?xt=urn:btih:${hash}`, hash, name: null } : null);
     if (!magnet) {
       invalid.push(token);
       continue;
     }
-    const key = magnet.hash ?? magnet.uri;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seen.has(magnet.hash)) continue;
+    seen.add(magnet.hash);
     magnets.push(magnet);
   }
   return { magnets, invalid };

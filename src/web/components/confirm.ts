@@ -96,12 +96,6 @@ export class DdsConfirm extends LitElement {
         animation: fade-in 0.2s ease;
       }
 
-      @keyframes fade-in {
-        from {
-          opacity: 0;
-        }
-      }
-
       form {
         display: grid;
         gap: 8px;

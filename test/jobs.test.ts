@@ -7,7 +7,6 @@ import { loadEnv } from '../src/server/env.js';
 import { EventHub } from '../src/server/events.js';
 import { JobManager, type JobsFile } from '../src/server/jobs.js';
 import { NasConnection } from '../src/server/nas-connection.js';
-import { SynologyClient } from '../src/server/nas/synology.js';
 import { defaultSettings, Settings, type StoredSettings } from '../src/server/settings.js';
 import { JsonFile } from '../src/server/storage.js';
 import { FakeProvider } from './mocks/fake-provider.js';
@@ -16,7 +15,7 @@ import { listen } from './serve.js';
 
 let clock = 1_000_000;
 const dsm = createMockDsm({
-  users: { paul: { password: 'pw', isManager: true } },
+  users: { paul: { password: 'pw' } },
   speed: 1000,
   now: () => clock,
 });
@@ -33,28 +32,31 @@ function setup(options = { createSubfolder: true, deleteFromDebrid: false }) {
     new JsonFile<StoredSettings>(join(dir, 'settings.json'), defaultSettings),
     loadEnv({ DATA_DIR: dir }),
   );
-  const nas = new NasConnection(
-    settings,
-    randomBytes(32),
-    (url, insecureTls) => new SynologyClient({ baseUrl: url, insecureTls }),
-  );
+  const nas = new NasConnection(settings, randomBytes(32));
   const provider = new FakeProvider();
-  const events = new EventHub();
   const jobs = new JobManager({
     file: new JsonFile<JobsFile>(join(dir, 'jobs.json'), () => ({ jobs: [] })),
     nas,
-    events,
+    events: new EventHub(),
     provider: () => provider,
     options: () => options,
   });
-  return { jobs, nas, provider, events };
+  /** A download of the next torrent of the fake debrid service. */
+  const add = async () =>
+    jobs.create({
+      provider: 'alldebrid',
+      debridId: (await provider.addMagnet()).id,
+      name: 'x',
+      category,
+    });
+  return { jobs, nas, provider, add };
 }
 
 /** Sets up Download Station with the NAS account. */
 const connect = (nas: NasConnection, password = 'pw') =>
   nas.configure({ url: server.url, account: 'paul', password, insecureTls: false });
 
-const logins = () => dsm.state.calls.filter((call) => call === 'SYNO.API.Auth.login').length;
+const logins = () => dsm.state.logins;
 
 const category = { name: 'Séries', icon: 'tv' as const, destination: 'video/Séries' };
 
@@ -71,25 +73,17 @@ describe('JobManager', () => {
   });
 
   it('takes a torrent from the debrid service to Download Station', async () => {
-    const { jobs, nas, provider } = setup();
+    const { jobs, nas, provider, add } = setup();
     await connect(nas);
     provider.nextPolls = 1;
-    const seen: string[] = [];
-    const job = jobs.create({
-      provider: 'alldebrid',
-      debridId: (await provider.addMagnet()).id,
-      name: 'x',
-      category,
-    });
+    const job = await add();
 
     await run(jobs);
-    seen.push(job.status);
     expect(job.status).toBe('debrid');
     expect(job.progress).toBe(0.5);
     expect(job.seeders).toBe(12);
 
     await run(jobs);
-    seen.push(job.status);
     expect(job.status).toBe('downloading');
     expect(job.folder).toBe('Show.S01');
     expect(job.files.map((file) => file.taskId)).toEqual([
@@ -114,36 +108,25 @@ describe('JobManager', () => {
     expect(job.status).toBe('completed');
     expect(job.progress).toBe(1);
     expect(jobs.toView(job).destination).toBe('video/Séries/Show.S01');
-    expect(seen).toEqual(['debrid', 'downloading']);
   });
 
   it('fails when the debrid service reports a dead torrent', async () => {
-    const { jobs, provider } = setup();
+    const { jobs, provider, add } = setup();
     provider.nextDead = true;
-    const job = jobs.create({
-      provider: 'alldebrid',
-      debridId: (await provider.addMagnet()).id,
-      name: 'x',
-      category,
-    });
+    const job = await add();
     await run(jobs);
     expect(job.status).toBe('error');
     expect(job.error?.code).toBe('torrent_dead');
   });
 
   it('waits for Download Station to be set up, then goes on', async () => {
-    const { jobs, nas, provider } = setup();
+    const { jobs, nas, provider, add } = setup();
     provider.nextContent = {
       name: 'Movie.mkv',
       multiFile: false,
       files: [{ path: 'Movie.mkv', size: 10, ref: 'm' }],
     };
-    const job = jobs.create({
-      provider: 'alldebrid',
-      debridId: (await provider.addMagnet()).id,
-      name: 'x',
-      category,
-    });
+    const job = await add();
     await run(jobs);
     expect(job.status).toBe('waiting_nas');
 
@@ -156,14 +139,9 @@ describe('JobManager', () => {
   });
 
   it('logs in to DSM again when it drops the session', async () => {
-    const { jobs, nas, provider } = setup();
+    const { jobs, nas, add } = setup();
     await connect(nas);
-    const job = jobs.create({
-      provider: 'alldebrid',
-      debridId: (await provider.addMagnet()).id,
-      name: 'x',
-      category,
-    });
+    const job = await add();
     // DSM drops its sessions (after 7 days, or a reboot): the download goes on by itself.
     const before = logins();
     dsm.expireSessions();
@@ -173,17 +151,12 @@ describe('JobManager', () => {
   });
 
   it('waits when DSM refuses the stored password, without trying it again', async () => {
-    const { jobs, nas, provider } = setup();
+    const { jobs, nas, add } = setup();
     await connect(nas);
     dsm.users.paul!.password = 'changed';
     try {
       dsm.expireSessions();
-      const job = jobs.create({
-        provider: 'alldebrid',
-        debridId: (await provider.addMagnet()).id,
-        name: 'x',
-        category,
-      });
+      const job = await add();
       const before = logins();
       await run(jobs, 3);
       expect(job.status).toBe('waiting_nas');
@@ -201,14 +174,9 @@ describe('JobManager', () => {
   });
 
   it('retries failed downloads with fresh links', async () => {
-    const { jobs, nas, provider } = setup({ createSubfolder: true, deleteFromDebrid: true });
+    const { jobs, nas, provider, add } = setup({ createSubfolder: true, deleteFromDebrid: true });
     await connect(nas);
-    const job = jobs.create({
-      provider: 'alldebrid',
-      debridId: (await provider.addMagnet()).id,
-      name: 'x',
-      category,
-    });
+    const job = await add();
     await run(jobs);
     const [first, second] = job.files;
     dsm.tasks.get(first!.taskId!)!.fail = 'broken_link';
@@ -233,14 +201,9 @@ describe('JobManager', () => {
   });
 
   it('cancels a job on Download Station and the debrid service', async () => {
-    const { jobs, nas, provider } = setup();
+    const { jobs, nas, provider, add } = setup();
     await connect(nas);
-    const job = jobs.create({
-      provider: 'alldebrid',
-      debridId: (await provider.addMagnet()).id,
-      name: 'x',
-      category,
-    });
+    const job = await add();
     await run(jobs);
     const taskIds = job.files.map((file) => file.taskId!);
     await jobs.remove(job.id, true);
@@ -250,19 +213,14 @@ describe('JobManager', () => {
   });
 
   it('renames a downloaded file only from a plain file name', async () => {
-    const { jobs, nas, provider } = setup();
+    const { jobs, nas, provider, add } = setup();
     await connect(nas);
     // Links that do not end with the file name: Download Station names the files after them.
     const titles: Record<string, string> = { l1: 'dl?id=1', l2: '../../photo/secret.jpg' };
-    provider.unlock = async (_id, file) =>
+    provider.unlock = async (file) =>
       `https://cdn.example/${encodeURIComponent(titles[file.ref]!)}?size=${file.size}`;
     const renamed = dsm.state.renamed.length;
-    const job = jobs.create({
-      provider: 'alldebrid',
-      debridId: (await provider.addMagnet()).id,
-      name: 'x',
-      category,
-    });
+    const job = await add();
 
     await run(jobs, 2);
     clock += 10_000;
@@ -275,14 +233,9 @@ describe('JobManager', () => {
   });
 
   it('clears finished jobs but keeps failed ones', async () => {
-    const { jobs, provider } = setup();
+    const { jobs, provider, add } = setup();
     provider.nextDead = true;
-    const failed = jobs.create({
-      provider: 'alldebrid',
-      debridId: (await provider.addMagnet()).id,
-      name: 'x',
-      category,
-    });
+    const failed = await add();
     await run(jobs);
     expect(failed.status).toBe('error');
     const done = jobs.create({

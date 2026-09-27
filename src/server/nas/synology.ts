@@ -3,13 +3,7 @@ import type { ErrorCode, FolderEntry } from '../../shared/types.js';
 import { AppError } from '../errors.js';
 import { log, redact } from '../logger.js';
 import { basename, dirname, splitPath } from '../paths.js';
-import {
-  NasSessionError,
-  type DsTask,
-  type LoginParams,
-  type LoginResult,
-  type NasClient,
-} from './types.js';
+import { NasSessionError, type DsTask, type LoginParams, type LoginResult } from './types.js';
 
 /*
  * Synology DSM Web API client (DSM 7, Download Station 4, File Station).
@@ -37,7 +31,7 @@ type Params = Record<string, string | number | boolean>;
 interface RawTask {
   id: string;
   title?: string;
-  status: string | number;
+  status: string;
   size?: number | string;
   status_extra?: { error_detail?: string } | null;
   additional?: {
@@ -51,7 +45,6 @@ const APIS = [
   'SYNO.DownloadStation.Info',
   'SYNO.DownloadStation.Task',
   'SYNO.DownloadStation2.Task',
-  'SYNO.DownloadStation2.Settings.Location',
   'SYNO.FileStation.List',
   'SYNO.FileStation.CreateFolder',
   'SYNO.FileStation.Rename',
@@ -134,43 +127,6 @@ const FILE_MESSAGES: Record<number, string> = {
   1101: 'Too many folders',
 };
 
-/** Download Station 2 reports statuses as numbers (from the DS web UI constants). */
-const DS2_STATUS: Record<number, string> = {
-  1: 'waiting',
-  2: 'downloading',
-  3: 'paused',
-  4: 'finishing',
-  5: 'finished',
-  6: 'hash_checking',
-  7: 'pre_seeding',
-  8: 'seeding',
-  9: 'filehosting_waiting',
-  10: 'extracting',
-  11: 'preprocessing',
-  12: 'preprocesspass',
-  13: 'downloaded',
-  14: 'postprocessing',
-  15: 'captcha_needed',
-};
-
-const DS2_ERRORS: Record<number, string> = {
-  102: 'broken_link',
-  103: 'destination_not_exist',
-  104: 'destination_denied',
-  105: 'disk_full',
-  106: 'quota_reached',
-  107: 'timeout',
-  108: 'exceed_max_file_system_size',
-  109: 'exceed_max_destination_size',
-  110: 'exceed_max_temp_size',
-  111: 'encrypted_name_too_long',
-  112: 'name_too_long',
-  114: 'file_not_exist',
-  115: 'required_premium_account',
-  116: 'not_supported_type',
-  125: 'try_it_later',
-};
-
 const toNumber = (value: unknown): number => {
   const number = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -190,22 +146,13 @@ function encodeForm(params: Params): string {
 }
 
 export function toTask(raw: RawTask): DsTask {
-  let status: string;
-  let error: string | null = null;
-  if (typeof raw.status === 'number') {
-    status = raw.status >= 100 ? 'error' : (DS2_STATUS[raw.status] ?? 'downloading');
-    if (status === 'error') error = DS2_ERRORS[raw.status] ?? `error_${raw.status}`;
-  } else {
-    status = raw.status;
-    if (status === 'error') error = raw.status_extra?.error_detail || 'unknown';
-  }
   return {
     id: raw.id,
-    status,
+    status: raw.status,
     size: toNumber(raw.size),
     downloaded: toNumber(raw.additional?.transfer?.size_downloaded),
     speed: toNumber(raw.additional?.transfer?.speed_download),
-    error,
+    error: raw.status === 'error' ? raw.status_extra?.error_detail || 'unknown' : null,
     uri: raw.additional?.detail?.uri ?? null,
     title: raw.title ?? null,
   };
@@ -222,22 +169,17 @@ export class SynologyApiError extends AppError {
   }
 }
 
-export interface SynologyOptions {
-  baseUrl: string;
-  insecureTls: boolean;
-  timeoutMs?: number;
-}
+const TIMEOUT_MS = 20_000;
 
-export class SynologyClient implements NasClient {
-  private readonly baseUrl: string;
+export class SynologyClient {
   private readonly dispatcher: Agent;
-  private readonly timeoutMs: number;
   private apiInfo: Promise<Record<string, ApiInfoEntry>> | null = null;
 
-  constructor(options: SynologyOptions) {
-    this.baseUrl = options.baseUrl;
-    this.timeoutMs = options.timeoutMs ?? 20_000;
-    this.dispatcher = new Agent({ connect: { rejectUnauthorized: !options.insecureTls } });
+  constructor(
+    private readonly baseUrl: string,
+    insecureTls: boolean,
+  ) {
+    this.dispatcher = new Agent({ connect: { rejectUnauthorized: !insecureTls } });
   }
 
   private async post<T>(path: string, params: Params): Promise<SynoResponse<T>> {
@@ -251,7 +193,7 @@ export class SynologyClient implements NasClient {
         dispatcher: this.dispatcher,
         // A redirect (HTTP → HTTPS) would turn the POST into a GET.
         redirect: 'manual',
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (error) {
       const cause = (error as Error & { cause?: Error & { code?: string } }).cause;
@@ -292,10 +234,6 @@ export class SynologyClient implements NasClient {
         throw error;
       });
     return this.apiInfo;
-  }
-
-  private async has(api: string): Promise<boolean> {
-    return (await this.infos())[api] !== undefined;
   }
 
   /** Calls a DSM API method with the highest supported version up to `maxVersion`. */
@@ -398,12 +336,9 @@ export class SynologyClient implements NasClient {
     );
   }
 
+  /** Throws NasSessionError when the session is no longer valid. */
   async checkSession(sid: string): Promise<void> {
-    if (await this.has('SYNO.DownloadStation.Info')) {
-      await this.call('SYNO.DownloadStation.Info', 'getinfo', {}, { sid, maxVersion: 1 });
-    } else {
-      await this.call('SYNO.DownloadStation2.Settings.Location', 'get', {}, { sid, maxVersion: 1 });
-    }
+    await this.call('SYNO.DownloadStation.Info', 'getinfo', {}, { sid, maxVersion: 1 });
   }
 
   async createFolders(sid: string, paths: string[]): Promise<void> {
@@ -486,42 +421,22 @@ export class SynologyClient implements NasClient {
     );
   }
 
-  async createDownloadTasks(
-    sid: string,
-    urls: string[],
-    destination: string,
-  ): Promise<(string | null)[]> {
-    const folder = splitPath(destination).join('/');
-    // Commas separate URLs in some Download Station code paths.
-    const safeUrls = urls.map((url) => url.replace(/,/g, '%2C'));
+  /** Returns the id of the new task (null when Download Station does not say it). */
+  async createDownloadTask(sid: string, url: string, destination: string): Promise<string | null> {
     try {
-      if (await this.has('SYNO.DownloadStation2.Task')) {
-        const ids: (string | null)[] = [];
-        // One URL per call, so that each returned task id maps to its file.
-        for (const url of safeUrls) {
-          const data = await this.call<{ task_id?: string[] }>(
-            'SYNO.DownloadStation2.Task',
-            'create',
-            {
-              type: JSON.stringify('url'),
-              url: JSON.stringify([url]),
-              destination: JSON.stringify(folder),
-              create_list: false,
-            },
-            { sid, maxVersion: 2, messages: TASK_MESSAGES },
-          );
-          ids.push(data.task_id?.[0] ?? null);
-        }
-        return ids;
-      }
-      // DSM 6: the legacy API does not return task ids (they are matched by URL later).
-      await this.call(
-        'SYNO.DownloadStation.Task',
+      const data = await this.call<{ task_id?: string[] }>(
+        'SYNO.DownloadStation2.Task',
         'create',
-        { uri: safeUrls.join(','), destination: folder },
-        { sid, maxVersion: 3, messages: TASK_MESSAGES },
+        {
+          type: JSON.stringify('url'),
+          // Commas separate URLs in some Download Station code paths.
+          url: JSON.stringify([url.replace(/,/g, '%2C')]),
+          destination: JSON.stringify(splitPath(destination).join('/')),
+          create_list: false,
+        },
+        { sid, maxVersion: 2, messages: TASK_MESSAGES },
       );
-      return urls.map(() => null);
+      return data.task_id?.[0] ?? null;
     } catch (error) {
       if (error instanceof SynologyApiError) {
         if (error.synoCode === 402) throw new AppError('destination_denied', error.message);
@@ -531,48 +446,24 @@ export class SynologyClient implements NasClient {
     }
   }
 
+  /** All the tasks: listing is sturdier than getinfo, which fails when one id is gone. */
   async listTasks(sid: string): Promise<DsTask[]> {
-    if (await this.has('SYNO.DownloadStation.Task')) {
-      const data = await this.call<{ tasks?: RawTask[] }>(
-        'SYNO.DownloadStation.Task',
-        'list',
-        { additional: 'detail,transfer', offset: 0, limit: -1 },
-        { sid, maxVersion: 1, messages: TASK_MESSAGES },
-      );
-      return (data.tasks ?? []).map(toTask);
-    }
-    const data = await this.call<{ task?: RawTask[] }>(
-      'SYNO.DownloadStation2.Task',
+    const data = await this.call<{ tasks?: RawTask[] }>(
+      'SYNO.DownloadStation.Task',
       'list',
-      { additional: JSON.stringify(['detail', 'transfer']), offset: 0, limit: -1 },
-      { sid, maxVersion: 2, messages: TASK_MESSAGES },
+      { additional: 'detail,transfer', offset: 0, limit: -1 },
+      { sid, maxVersion: 1, messages: TASK_MESSAGES },
     );
-    return (data.task ?? []).map(toTask);
-  }
-
-  async getTasks(sid: string, ids: string[]): Promise<DsTask[]> {
-    if (!ids.length) return [];
-    // Listing is sturdier than getinfo, which fails as a whole when one id is gone.
-    const wanted = new Set(ids);
-    return (await this.listTasks(sid)).filter((task) => wanted.has(task.id));
+    return (data.tasks ?? []).map(toTask);
   }
 
   async deleteTasks(sid: string, ids: string[]): Promise<void> {
     if (!ids.length) return;
-    if (await this.has('SYNO.DownloadStation.Task')) {
-      await this.call(
-        'SYNO.DownloadStation.Task',
-        'delete',
-        { id: ids.join(','), force_complete: false },
-        { sid, maxVersion: 1, messages: TASK_MESSAGES },
-      );
-      return;
-    }
     await this.call(
-      'SYNO.DownloadStation2.Task',
+      'SYNO.DownloadStation.Task',
       'delete',
-      { id: JSON.stringify(ids), force_complete: false },
-      { sid, maxVersion: 2, messages: TASK_MESSAGES },
+      { id: ids.join(','), force_complete: false },
+      { sid, maxVersion: 1, messages: TASK_MESSAGES },
     );
   }
 }

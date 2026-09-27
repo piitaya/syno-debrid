@@ -8,44 +8,31 @@ import {
   type ProviderId,
   type ProviderState,
 } from '../../shared/types.js';
-import { api, ApiError } from '../api.js';
+import { api, errorInfo } from '../api.js';
 import { formatDate } from '../format.js';
 import { errorMessage, t } from '../i18n.js';
-import {
-  mdiAlertCircleOutline,
-  mdiCheck,
-  mdiCheckCircleOutline,
-  mdiEyeOffOutline,
-  mdiEyeOutline,
-  mdiOpenInNew,
-} from '../icons.js';
+import { mdiEyeOffOutline, mdiEyeOutline, mdiOpenInNew } from '../icons.js';
 import { store, StoreController } from '../store.js';
+import { checkRowStyles, renderCheckRow } from './check-row.js';
 import { confirmAction } from './confirm.js';
-import { inlineInputStyles } from './folder-picker.js';
 import './icon.js';
 import type { DdsSheet } from './sheet.js';
 import './sheet.js';
-import { sharedStyles } from './styles.js';
+import { inlineInputStyles, sharedStyles } from './styles.js';
 
-/** State of the account check of a provider's API key. */
+/** The debrid service (AllDebrid only, for now). */
+export const PROVIDER: ProviderId = 'alldebrid';
+
+/** State of the account check of the API key. */
 export type ProviderCheck =
   | { status: 'checking' }
   | { status: 'ok'; account: ProviderAccount }
   | { status: 'error'; error: ErrorInfo };
 
-export interface ProviderCheckedDetail {
-  id: ProviderId;
-  /** Null once the key has been removed. */
-  check: ProviderCheck | null;
-}
-
-export const errorInfo = (error: unknown): ErrorInfo =>
-  error instanceof ApiError ? error.info : { code: 'internal' };
-
-/** Checks the saved API key of a provider, or the given one. */
-export async function checkProvider(id: ProviderId, apiKey?: string): Promise<ProviderCheck> {
+/** Checks the saved API key, or the given one. */
+export async function checkProvider(apiKey?: string): Promise<ProviderCheck> {
   try {
-    const result = await api.testProvider(id, apiKey);
+    const result = await api.testProvider(PROVIDER, apiKey);
     return result.ok
       ? { status: 'ok', account: result.account }
       : { status: 'error', error: result.error };
@@ -63,14 +50,14 @@ export function premiumLabel(account: ProviderAccount): string {
 }
 
 /**
- * API key, account and default flag of one debrid service.
+ * API key and account of the debrid service.
  *
- * Fires `dds-provider-checked` (`ProviderCheckedDetail`) whenever the saved key has been checked,
- * so that the settings page shows the same status.
+ * Fires `dds-provider-checked` (`CustomEvent<ProviderCheck | null>`, null once the key is
+ * removed) whenever the saved key has been checked, so that the settings page shows the same
+ * status.
  */
 @customElement('dds-provider-sheet')
 export class DdsProviderSheet extends LitElement {
-  @state() private provider: ProviderId = 'alldebrid';
   /** Key typed by the user. */
   @state() private key = '';
   @state() private reveal = false;
@@ -93,12 +80,11 @@ export class DdsProviderSheet extends LitElement {
   }
 
   private get providerState(): ProviderState | undefined {
-    return store.settings?.providers.find((state) => state.id === this.provider);
+    return store.settings?.providers.find((state) => state.id === PROVIDER);
   }
 
   /** Opens the sheet; `known` is the last check of the saved key, when there is one. */
-  async open(id: ProviderId, known?: ProviderCheck | null): Promise<void> {
-    this.provider = id;
+  async open(known?: ProviderCheck | null): Promise<void> {
     this.key = '';
     this.reveal = false;
     this.error = '';
@@ -112,9 +98,9 @@ export class DdsProviderSheet extends LitElement {
     if (!configured && matchMedia('(pointer: fine)').matches) this.keyInput?.focus();
   }
 
-  private emitCheck(id: ProviderId, check: ProviderCheck | null): void {
+  private emitCheck(check: ProviderCheck | null): void {
     this.dispatchEvent(
-      new CustomEvent<ProviderCheckedDetail>('dds-provider-checked', { detail: { id, check } }),
+      new CustomEvent<ProviderCheck | null>('dds-provider-checked', { detail: check }),
     );
   }
 
@@ -123,15 +109,14 @@ export class DdsProviderSheet extends LitElement {
    * matters (sheet closed or reopened meanwhile).
    */
   private async test(): Promise<ProviderCheck | null> {
-    const id = this.provider;
     const key = this.key.trim();
     const run = ++this.checkRun;
     this.check = { status: 'checking' };
     this.checkedKey = key || null;
-    const check = await checkProvider(id, key || undefined);
+    const check = await checkProvider(key || undefined);
     if (run !== this.checkRun) return null;
     this.check = check;
-    if (!key) this.emitCheck(id, check);
+    if (!key) this.emitCheck(check);
     return check;
   }
 
@@ -142,7 +127,6 @@ export class DdsProviderSheet extends LitElement {
   }
 
   private async save(): Promise<void> {
-    const id = this.provider;
     const key = this.key.trim();
     if (!key || this.saving) return;
     this.saving = true;
@@ -159,8 +143,8 @@ export class DdsProviderSheet extends LitElement {
           return;
         }
       }
-      store.setSettings(await api.updateSettings({ apiKeys: { [id]: key } }));
-      this.emitCheck(id, check);
+      store.setSettings(await api.updateSettings({ apiKeys: { [PROVIDER]: key } }));
+      this.emitCheck(check);
       store.toast(t('provider.saved'), 'success');
       this.sheet.close();
     } catch (error) {
@@ -170,24 +154,8 @@ export class DdsProviderSheet extends LitElement {
     }
   }
 
-  private async makeDefault(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    if (!input.checked) return;
-    this.working = true;
-    this.error = '';
-    try {
-      store.setSettings(await api.updateSettings({ defaultProvider: this.provider }));
-    } catch (error) {
-      input.checked = false;
-      this.error = errorMessage(errorInfo(error).code);
-    } finally {
-      this.working = false;
-    }
-  }
-
   private async removeKey(): Promise<void> {
-    const id = this.provider;
-    const name = PROVIDERS[id].name;
+    const name = PROVIDERS[PROVIDER].name;
     const confirmed = await confirmAction({
       title: t('provider.removeTitle', { name }),
       message: t('provider.removeMessage', { name }),
@@ -197,8 +165,8 @@ export class DdsProviderSheet extends LitElement {
     this.working = true;
     this.error = '';
     try {
-      store.setSettings(await api.updateSettings({ apiKeys: { [id]: null } }));
-      this.emitCheck(id, null);
+      store.setSettings(await api.updateSettings({ apiKeys: { [PROVIDER]: null } }));
+      this.emitCheck(null);
       store.toast(t('provider.removed'), 'success');
       this.sheet.close();
     } catch (error) {
@@ -217,18 +185,10 @@ export class DdsProviderSheet extends LitElement {
     this.checkRun++;
   }
 
-  private onKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || event.isComposing) return;
-    event.preventDefault();
-    void this.save();
-  }
-
   override render() {
-    const provider = PROVIDERS[this.provider];
+    const provider = PROVIDERS[PROVIDER];
     const configured = this.providerState?.configured ?? false;
     const fromEnv = this.providerState?.fromEnv ?? false;
-    const configuredCount = store.settings?.providers.filter((p) => p.configured).length ?? 0;
-    const isDefault = store.settings?.defaultProvider === this.provider;
 
     return html`
       <dds-sheet
@@ -251,13 +211,6 @@ export class DdsProviderSheet extends LitElement {
         }
         ${fromEnv ? nothing : this.renderKey(configured)}
         ${
-          configured && configuredCount >= 2
-            ? html`<section class="section">
-                <div class="group">${this.renderDefault(isDefault)}</div>
-              </section>`
-            : nothing
-        }
-        ${
           configured && !fromEnv
             ? html`<section class="section">
                 <div class="group">
@@ -276,73 +229,37 @@ export class DdsProviderSheet extends LitElement {
     `;
   }
 
-  /** The default service shows a check: another service is made the default from its own sheet. */
-  private renderDefault(isDefault: boolean) {
-    if (isDefault) {
-      return html`<div class="row">
-        <span class="row-main"><span class="row-title">${t('provider.default')}</span></span>
-        <dds-icon class="check" .path=${mdiCheck}></dds-icon>
-      </div>`;
-    }
-    return html`<label class="row">
-      <span class="row-main"><span class="row-title">${t('provider.default')}</span></span>
-      <input
-        type="checkbox"
-        class="switch"
-        role="switch"
-        .checked=${live(false)}
-        ?disabled=${this.working}
-        @change=${this.makeDefault}
-      />
-    </label>`;
-  }
-
   private renderCheck(check: ProviderCheck) {
-    if (check.status === 'checking') {
-      return html`<div class="row status checking" role="status">
-        <span class="status-icon"><span class="spinner"></span></span>
-        <span class="row-main"
-          ><span class="row-title secondary">${t('provider.checking')}</span></span
-        >
-      </div>`;
-    }
+    if (check.status === 'checking') return renderCheckRow(check);
     if (check.status === 'ok') {
-      return html`<div class="row status" role="status">
-        <dds-icon class="status-icon success-text" .path=${mdiCheckCircleOutline}></dds-icon>
-        <span class="row-main">
-          <span class="row-title wrap">${check.account.username}</span>
-          <span class="row-subtitle">${premiumLabel(check.account)}</span>
-        </span>
-      </div>`;
+      return renderCheckRow({
+        status: 'ok',
+        title: check.account.username,
+        subtitle: premiumLabel(check.account),
+      });
     }
     const raw = check.error.message;
-    return html`<div class="row status" role="alert">
-      <dds-icon class="status-icon danger-text" .path=${mdiAlertCircleOutline}></dds-icon>
-      <span class="row-main">
-        <span class="row-title danger-text">${errorMessage(check.error.code)}</span>
-        ${
-          raw && raw !== check.error.code
-            ? html`<span class="row-subtitle wrap">${t('common.detail', { message: raw })}</span>`
-            : nothing
-        }
-      </span>
-    </div>`;
+    return renderCheckRow({
+      status: 'error',
+      title: errorMessage(check.error.code),
+      detail: raw && raw !== check.error.code ? t('common.detail', { message: raw }) : undefined,
+    });
   }
 
   /** The variable name is shown in monospace. */
   private renderFromEnv() {
-    const name = `${this.provider.toUpperCase()}_API_KEY`;
+    const name = `${PROVIDER.toUpperCase()}_API_KEY`;
     const [before, after = ''] = t('provider.fromEnv', { name: '\u0000' }).split('\u0000');
     return html`${before}<code>${name}</code>${after}`;
   }
 
   private renderKey(configured: boolean) {
-    const provider = PROVIDERS[this.provider];
+    const provider = PROVIDERS[PROVIDER];
     const testing = this.check?.status === 'checking';
     return html`<section class="section">
       <h3 class="section-header"><label for="key">${t('provider.apiKey')}</label></h3>
       <div class="group">
-        <div class="row key">
+        <div class="row input-row key">
           <input
             id="key"
             class="inline-input mono-input"
@@ -357,7 +274,6 @@ export class DdsProviderSheet extends LitElement {
               this.key = (event.target as HTMLInputElement).value;
               this.error = '';
             }}
-            @keydown=${this.onKeyDown}
           />
           <button
             class="icon-btn"
@@ -387,48 +303,10 @@ export class DdsProviderSheet extends LitElement {
   static override styles = [
     sharedStyles,
     inlineInputStyles,
+    checkRowStyles,
     css`
-      .row:focus-visible {
-        box-shadow: inset var(--focus-ring);
-      }
-
-      .status {
-        align-items: flex-start;
-      }
-
-      .status-icon {
-        --icon-size: 22px;
-        display: grid;
-        flex: none;
-        place-items: center;
-        width: 22px;
-        height: 22px;
-        margin-top: -1px;
-      }
-
-      .status-icon .spinner {
-        color: var(--text-secondary);
-      }
-
-      .status .row-main {
-        align-self: center;
-      }
-
-      .status.checking {
-        align-items: center;
-      }
-
-      .status.checking .status-icon {
-        margin-top: 0;
-      }
-
-      .status .row-subtitle {
-        overflow-wrap: anywhere;
-      }
-
+      /* Room for the button showing the key. */
       .key {
-        padding-top: 4px;
-        padding-bottom: 4px;
         padding-right: 6px;
       }
 

@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import type { ErrorCode } from '../../shared/types.js';
-import { ApiError } from '../api.js';
+import { errorInfo } from '../api.js';
 import { errorMessage, t } from '../i18n.js';
 import { mdiAlertCircleOutline } from '../icons.js';
 import { store } from '../store.js';
@@ -13,9 +13,8 @@ import { sharedStyles } from './styles.js';
 @customElement('dds-login-page')
 export class DdsLoginPage extends LitElement {
   @state() private busy = false;
-  @state() private error: string | null = store.logoutReason
-    ? errorMessage(store.logoutReason)
-    : null;
+  @state() private error: string | null =
+    store.signedOutReason === 'unauthorized' ? errorMessage('unauthorized') : null;
   @state() private forgot = false;
 
   @query('input[name="password"]') private passwordInput?: HTMLInputElement;
@@ -34,7 +33,7 @@ export class DdsLoginPage extends LitElement {
       await store.login(username, password);
       return;
     } catch (error) {
-      code = error instanceof ApiError ? error.info.code : 'internal';
+      code = errorInfo(error).code;
     } finally {
       this.busy = false;
     }

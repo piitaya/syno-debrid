@@ -17,7 +17,6 @@ ENV NODE_ENV=production \
     PGID=1000
 WORKDIR /app
 COPY --from=build /app/dist ./dist
-RUN mkdir -p /data
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

@@ -2,7 +2,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import type { ErrorCode, NasUpdate } from '../shared/types.js';
 import { AppError, toErrorInfo } from './errors.js';
 import { log } from './logger.js';
-import { NasSessionError, type NasClient } from './nas/types.js';
+import { SynologyClient } from './nas/synology.js';
+import { NasSessionError } from './nas/types.js';
 import type { Settings, StoredNas } from './settings.js';
 
 /** What it takes to log in to DSM again. */
@@ -50,15 +51,13 @@ export function normalizeNasUrl(value: string): string | null {
   }
 }
 
-export type NasClientFactory = (url: string, insecureTls: boolean) => NasClient;
-
 /**
  * The app's connection to Download Station: one DSM account, set up from the app. Its password
  * is kept, encrypted, to log in again whenever DSM drops the session (after 7 days, or when it
  * restarts), so that downloads carry on without anyone.
  */
 export class NasConnection {
-  private client: NasClient | null = null;
+  private client: SynologyClient | null = null;
   /** Settings the client and the session belong to. */
   private current: StoredNas | null = null;
   private sid: string | null = null;
@@ -70,11 +69,10 @@ export class NasConnection {
     private readonly settings: Settings,
     /** AES-256 key (32 bytes) for the stored password. */
     private readonly key: Buffer,
-    private readonly createClient: NasClientFactory,
   ) {}
 
   /** Runs a NAS call with the DSM session. When DSM dropped it, logs in again and retries once. */
-  async run<T>(call: (client: NasClient, sid: string) => Promise<T>): Promise<T> {
+  async run<T>(call: (client: SynologyClient, sid: string) => Promise<T>): Promise<T> {
     const sid = await this.session();
     const client = this.client!;
     try {
@@ -114,7 +112,7 @@ export class NasConnection {
    * Throws the AppError of what failed.
    */
   async configure(update: NasUpdate): Promise<void> {
-    const client = this.createClient(update.url, update.insecureTls);
+    const client = new SynologyClient(update.url, update.insecureTls);
     const previous = this.settings.nas;
     // The same account on the same NAS is still a trusted device: no new 2FA code needed.
     const trusted =
@@ -159,7 +157,7 @@ export class NasConnection {
     if (!nas) throw new NasLoginError('nas_not_configured');
     if (nas === this.current) return;
     this.current = nas;
-    this.client = this.createClient(nas.url, nas.insecureTls);
+    this.client = new SynologyClient(nas.url, nas.insecureTls);
     this.sid = null;
     this.failure = null;
   }

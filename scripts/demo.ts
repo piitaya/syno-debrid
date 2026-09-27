@@ -1,16 +1,14 @@
 // Runs the whole app against the fake NAS and debrid services, with sample settings and
-// downloads, for UI work: web app with hot reload, API server, mocks.
+// downloads: the web app and the API server, both reloaded when their code changes.
 //
 //   npm run demo                    → http://localhost:5173 (sign in with demo / demo1234)
 //   DEMO_PORT=5300 npm run demo     → web on 5300, API on 5301, mocks on 5302
 //   DEMO_SEED=0 npm run demo        → first start: no account, no sample downloads
 import { serve } from '@hono/node-server';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createServer } from 'vite';
 import { createMockServer } from '../test/mocks/server.js';
+import { sampleDataDir, serverEnv, waitForServer } from './sample.js';
 
 const webPort = Number(process.env.DEMO_PORT ?? 5173);
 const apiPort = webPort + 1;
@@ -21,33 +19,9 @@ const apiUrl = `http://127.0.0.1:${apiPort}`;
 const mock = createMockServer({ speed: 5 * 1024 * 1024 });
 serve({ fetch: mock.app.fetch, port: mockPort, hostname: '127.0.0.1' });
 
-const dataDir = mkdtempSync(join(tmpdir(), 'dds-demo-'));
-writeFileSync(
-  join(dataDir, 'settings.json'),
-  JSON.stringify({
-    apiKeys: { alldebrid: 'demo' },
-    defaultProvider: 'alldebrid',
-    categories: [
-      { id: 'films', name: 'Films', icon: 'movie', destination: 'video/Films' },
-      { id: 'series', name: 'Séries', icon: 'tv', destination: 'video/Séries' },
-      { id: 'kids', name: 'Enfants', icon: 'kids', destination: 'video/Enfants' },
-      { id: 'music', name: 'Musique', icon: 'music', destination: 'music' },
-    ],
-    defaultCategoryId: 'films',
-    createSubfolder: true,
-    deleteFromDebrid: false,
-  }),
-);
-
-const api = spawn('npx', ['tsx', 'src/server/index.ts'], {
-  env: {
-    ...process.env,
-    PORT: String(apiPort),
-    HOST: '127.0.0.1',
-    DATA_DIR: dataDir,
-    ALLDEBRID_API_URL: `${mockUrl}/alldebrid`,
-    LOG_LEVEL: 'warn',
-  },
+// The server restarts when its code changes.
+const api = spawn('npx', ['tsx', 'watch', 'src/server/index.ts'], {
+  env: serverEnv(apiPort, sampleDataDir(), mockUrl),
   stdio: 'inherit',
 });
 
@@ -56,18 +30,6 @@ const web = await createServer({
   server: { port: webPort, strictPort: true, proxy: { '^/api/': { target: apiUrl } } },
 });
 await web.listen();
-
-async function waitForApi(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`${apiUrl}/api/health`)).ok) return;
-    } catch {
-      // Not up yet.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  throw new Error('API server did not start');
-}
 
 async function seed(): Promise<void> {
   // As done in the app: the account, then Download Station on the fake NAS.
@@ -94,19 +56,19 @@ async function seed(): Promise<void> {
     ['Cosmos.Laundromat.2015.dead', 'kids'],
   ];
   for (const [index, [name, categoryId]] of samples.entries()) {
+    const form = new FormData();
+    form.set('provider', 'alldebrid');
+    form.set('categoryId', categoryId);
+    form.set('magnets', `magnet:?xt=urn:btih:${hash(index + 1)}&dn=${name}`);
     await fetch(`${apiUrl}/api/jobs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'dds', Cookie: cookie },
-      body: JSON.stringify({
-        magnets: [`magnet:?xt=urn:btih:${hash(index + 1)}&dn=${name}`],
-        provider: 'alldebrid',
-        categoryId,
-      }),
+      headers: { 'X-Requested-With': 'dds', Cookie: cookie },
+      body: form,
     });
   }
 }
 
-await waitForApi();
+await waitForServer(apiUrl);
 const seeded = process.env.DEMO_SEED !== '0';
 if (seeded) await seed();
 console.log(

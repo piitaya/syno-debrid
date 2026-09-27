@@ -5,17 +5,16 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Account, type StoredAccount } from '../src/server/account.js';
 import { createApp } from '../src/server/app.js';
-import { createProvider, Providers } from '../src/server/debrid/index.js';
+import { configuredProvider } from '../src/server/debrid/index.js';
 import { loadEnv } from '../src/server/env.js';
 import { EventHub } from '../src/server/events.js';
 import { JobManager, type JobsFile } from '../src/server/jobs.js';
 import { NasConnection } from '../src/server/nas-connection.js';
-import { SynologyClient } from '../src/server/nas/synology.js';
 import { RateLimiter } from '../src/server/rate-limit.js';
 import { Sessions, type SessionMap } from '../src/server/sessions.js';
 import { defaultSettings, Settings, type StoredSettings } from '../src/server/settings.js';
 import { JsonFile } from '../src/server/storage.js';
-import type { AddJobsResponse, AppSettings, JobView } from '../src/shared/types.js';
+import type { AddJobsResponse, AppSettings } from '../src/shared/types.js';
 import { makeTorrent } from './helpers.js';
 import { createMockServer } from './mocks/server.js';
 import { listen } from './serve.js';
@@ -45,17 +44,12 @@ function build(variables: Record<string, string> = {}, loginAttempts = 20) {
     86_400_000,
   );
   const events = new EventHub();
-  const providers = new Providers(settings, env);
-  const nas = new NasConnection(
-    settings,
-    randomBytes(32),
-    (url, insecureTls) => new SynologyClient({ baseUrl: url, insecureTls }),
-  );
+  const nas = new NasConnection(settings, randomBytes(32));
   const jobs = new JobManager({
     file: new JsonFile<JobsFile>(join(dir, 'j.json'), () => ({ jobs: [] })),
     nas,
     events,
-    provider: (id) => providers.get(id),
+    provider: (id) => configuredProvider(id, settings, env),
     options: () => ({ createSubfolder: settings.createSubfolder, deleteFromDebrid: false }),
   });
   const app = createApp({
@@ -66,8 +60,6 @@ function build(variables: Record<string, string> = {}, loginAttempts = 20) {
     nas,
     jobs,
     events,
-    provider: (id) => providers.get(id),
-    providerWithKey: (id, key) => createProvider(id, key, env),
     loginLimiter: new RateLimiter(loginAttempts, 60_000),
     nasLoginLimiter: new RateLimiter(20, 60_000),
   });
@@ -136,7 +128,7 @@ async function signedIn() {
   return api;
 }
 
-const dsmLogins = () => mock.dsm.state.calls.filter((call) => call === 'SYNO.API.Auth.login');
+const dsmLogins = () => mock.dsm.state.logins;
 
 describe('HTTP API', () => {
   it('asks for the setup on the first start', async () => {
@@ -283,12 +275,14 @@ describe('HTTP API', () => {
     expect(settings.providers).toEqual([{ id: 'alldebrid', configured: true, fromEnv: false }]);
     const [series, films] = settings.categories;
 
-    const added = await api('POST', 'jobs', {
-      magnets: ['magnet:?xt=urn:btih:' + '1'.repeat(40) + '&dn=Sintel.S01.1080p.WEB\nnot-a-magnet'],
-      provider: 'alldebrid',
-      categoryId: series!.id,
-    });
-    const results = (added.data as AddJobsResponse).results;
+    const pasted = new FormData();
+    pasted.set('provider', 'alldebrid');
+    pasted.set('categoryId', series!.id);
+    pasted.set(
+      'magnets',
+      `magnet:?xt=urn:btih:${'1'.repeat(40)}&dn=Sintel.S01.1080p.WEB\nnot-a-magnet`,
+    );
+    const results = ((await api('POST', 'jobs', pasted)).data as AddJobsResponse).results;
     expect(results.map((r) => r.ok)).toEqual([false, true]);
     expect(results[0]).toMatchObject({ input: 'not-a-magnet', error: { code: 'magnet_invalid' } });
 
@@ -301,7 +295,7 @@ describe('HTTP API', () => {
     expect(upload.results.map((r) => r.ok)).toEqual([true, false]);
 
     await waitFor(() => jobs.list().every((job) => job.status === 'completed'));
-    const list = (await api('GET', 'jobs')).data.jobs as JobView[];
+    const list = jobs.list().map((job) => jobs.toView(job));
     const pack = list.find((job) => job.name.startsWith('Sintel'))!;
     const movie = list.find((job) => job.name.startsWith('Big.Buck'))!;
     expect(pack).toMatchObject({
@@ -313,16 +307,16 @@ describe('HTTP API', () => {
     expect(movie).toMatchObject({ status: 'completed', destination: 'video/Films' });
 
     expect((await api('POST', 'jobs/clear')).status).toBe(204);
-    expect((await api('GET', 'jobs')).data.jobs).toEqual([]);
+    expect(jobs.list()).toEqual([]);
   });
 
   it('keeps the Download Station login going', async () => {
     const api = await signedIn();
     // DSM drops its sessions after 7 days: the app logs in again, as a trusted device (2FA).
-    const before = dsmLogins().length;
+    const before = dsmLogins();
     mock.dsm.expireSessions();
     expect((await api('GET', 'folders')).status).toBe(200);
-    expect(dsmLogins().length - before).toBe(1);
+    expect(dsmLogins() - before).toBe(1);
     expect((await api('POST', 'nas/test')).data).toEqual({ ok: true });
   });
 
@@ -330,7 +324,7 @@ describe('HTTP API', () => {
     const api = await signedIn();
     mock.dsm.users.secure!.password = 'changed';
     try {
-      const before = dsmLogins().length;
+      const before = dsmLogins();
       mock.dsm.expireSessions();
       expect(await api('GET', 'folders')).toMatchObject({
         status: 503,
@@ -342,7 +336,7 @@ describe('HTTP API', () => {
         error: { code: 'invalid_credentials' },
       });
       // Failed logins get the container's IP blocked by DSM: the refused one is not tried again.
-      expect(dsmLogins().length - before).toBe(1);
+      expect(dsmLogins() - before).toBe(1);
       // The app stays usable.
       expect((await api('GET', 'settings')).status).toBe(200);
 
@@ -475,8 +469,12 @@ describe('Request size', () => {
       200,
     );
     // POST /jobs takes .torrent files: a large request goes on to be checked.
-    expect(
-      await api('POST', 'jobs', { provider: 'alldebrid', categoryId: 'none', magnets: [large] }),
-    ).toMatchObject({ status: 400, data: { error: { code: 'provider_not_configured' } } });
+    const form = new FormData();
+    form.set('provider', 'alldebrid');
+    form.set('magnets', large);
+    expect(await api('POST', 'jobs', form)).toMatchObject({
+      status: 400,
+      data: { error: { code: 'provider_not_configured' } },
+    });
   });
 });

@@ -113,10 +113,6 @@ export class JobManager {
   private readonly busy = new Set<string>();
 
   constructor(private readonly deps: JobDeps) {
-    for (const job of this.jobs) {
-      // Saved by an earlier version, which waited for the user to log in to DSM again.
-      if ((job.status as string) === 'waiting_login') job.status = 'waiting_nas';
-    }
     this.prune();
   }
 
@@ -369,7 +365,6 @@ export class JobManager {
 
   private async checkDebrid(job: Job): Promise<void> {
     const status = await this.deps.provider(job.provider).status(job.debridId);
-    if (status.id) job.debridId = status.id;
     if (status.name) job.name = status.name;
     if (status.size) job.size = status.size;
     job.progress = status.progress;
@@ -433,16 +428,12 @@ export class JobManager {
     for (const file of pending) {
       // Cancelled meanwhile.
       if (!this.jobs.includes(job)) return;
-      const url = await provider.unlock(job.debridId, {
-        path: file.path,
-        size: file.size,
-        ref: file.ref,
-      });
-      const [taskId] = await nas.run((client, sid) =>
-        client.createDownloadTasks(sid, [url], folderOf(file)),
+      const url = await provider.unlock({ path: file.path, size: file.size, ref: file.ref });
+      const taskId = await nas.run((client, sid) =>
+        client.createDownloadTask(sid, url, folderOf(file)),
       );
       file.url = url;
-      file.taskId = taskId ?? null;
+      file.taskId = taskId;
       file.status = 'queued';
       this.changed(job);
     }
@@ -455,23 +446,15 @@ export class JobManager {
   }
 
   private async checkDownloads(job: Job): Promise<void> {
-    const nas = this.deps.nas;
-    // Download Station did not return some task ids: find them by URL.
-    const unmatched = job.files.filter(
-      (file) => !file.taskId && file.url && file.status !== 'completed',
-    );
-    if (unmatched.length) {
-      const listed = await nas.run((client, sid) => client.listTasks(sid));
-      const byUrl = new Map(listed.map((task) => [task.uri, task.id]));
-      for (const file of unmatched) file.taskId = byUrl.get(file.url) ?? null;
-    }
-
-    const ids = job.files.map((file) => file.taskId).filter((id): id is string => !!id);
-    const found = await nas.run((client, sid) => client.getTasks(sid, ids));
-    const tasks = new Map(found.map((task) => [task.id, task]));
+    const tasks = await this.deps.nas.run((client, sid) => client.listTasks(sid));
+    const byId = new Map(tasks.map((task) => [task.id, task]));
 
     for (const file of job.files) {
-      const task = file.taskId ? tasks.get(file.taskId) : undefined;
+      // Download Station did not return the task id: found by URL.
+      if (!file.taskId && file.url && file.status !== 'completed') {
+        file.taskId = tasks.find((task) => task.uri === file.url)?.id ?? null;
+      }
+      const task = file.taskId ? byId.get(file.taskId) : undefined;
       if (!task) {
         // Removed from Download Station (by hand or by its auto-clean).
         if (file.status !== 'completed') file.status = 'removed';

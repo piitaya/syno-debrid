@@ -62,9 +62,7 @@ export interface AppSettings {
   /** Null until Download Station is set up. */
   nas: NasSettings | null;
   providers: ProviderState[];
-  defaultProvider: ProviderId | null;
   categories: Category[];
-  defaultCategoryId: string | null;
   /** Put multi-file torrents in their own folder (like a BitTorrent client does). */
   createSubfolder: boolean;
   /** Remove the torrent from the debrid account once Download Station has finished. */
@@ -72,9 +70,7 @@ export interface AppSettings {
 }
 
 export interface SettingsUpdate {
-  defaultProvider?: ProviderId | null;
   categories?: Category[];
-  defaultCategoryId?: string | null;
   createSubfolder?: boolean;
   deleteFromDebrid?: boolean;
   /** New API keys; `null` removes the stored key. */
@@ -200,10 +196,6 @@ export interface ErrorInfo {
   message?: string;
 }
 
-export interface ApiErrorBody {
-  error: ErrorInfo;
-}
-
 export type JobStatus =
   /** The debrid service is fetching the torrent. */
   | 'debrid'
@@ -262,12 +254,6 @@ export type AddJobResult =
 
 export interface AddJobsResponse {
   results: AddJobResult[];
-}
-
-export interface AddJobsRequest {
-  magnets: string[];
-  provider: ProviderId;
-  categoryId: string;
 }
 
 /** Server-sent events emitted on `/api/events`. */

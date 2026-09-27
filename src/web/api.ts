@@ -17,13 +17,14 @@ import type {
 } from '../shared/types.js';
 
 export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly info: ErrorInfo,
-  ) {
+  constructor(readonly info: ErrorInfo) {
     super(info.message ?? info.code);
   }
 }
+
+/** What went wrong with a request (`internal` when the server could not say). */
+export const errorInfo = (error: unknown): ErrorInfo =>
+  error instanceof ApiError ? error.info : { code: 'internal' };
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -40,27 +41,16 @@ async function request<T>(method: Method, path: string, body?: unknown): Promise
 
   let response: Response;
   try {
-    response = await fetch(`api/${path}`, {
-      method,
-      headers,
-      body: payload,
-      credentials: 'same-origin',
-    });
+    response = await fetch(`api/${path}`, { method, headers, body: payload });
   } catch (error) {
-    throw new ApiError(0, { code: 'internal', message: (error as Error).message });
+    throw new ApiError({ code: 'internal', message: (error as Error).message });
   }
 
-  if (response.status === 204) {
-    // Reading the (empty) body lets the browser end the request cleanly.
-    await response.arrayBuffer().catch(() => undefined);
-    return undefined as T;
-  }
+  // An empty body (204) reads as null.
   const data = (await response.json().catch(() => null)) as { error?: ErrorInfo } | null;
   if (!response.ok) {
-    const info = data?.error ?? { code: 'internal', message: `HTTP ${response.status}` };
-    const error = new ApiError(response.status, info);
     if (response.status === 401) window.dispatchEvent(new CustomEvent('dds-unauthorized'));
-    throw error;
+    throw new ApiError(data?.error ?? { code: 'internal', message: `HTTP ${response.status}` });
   }
   return data as T;
 }
@@ -86,7 +76,6 @@ export const api = {
   createFolder: (path: string, name: string) =>
     request<FolderEntry>('POST', 'folders', { path, name }),
 
-  jobs: () => request<{ jobs: JobView[] }>('GET', 'jobs'),
   addJobs: (form: FormData) => request<AddJobsResponse>('POST', 'jobs', form),
   retryJob: (id: string) => request<JobView>('POST', `jobs/${encodeURIComponent(id)}/retry`),
   deleteJob: (id: string, cancel: boolean) =>

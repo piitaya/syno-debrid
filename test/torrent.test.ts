@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { parseTorrent, TorrentParseError } from '../src/shared/torrent.js';
 import { bencode, makeTorrent } from './helpers.js';
@@ -41,14 +40,6 @@ describe('parseTorrent', () => {
       { path: '01.flac', size: 10 },
       { path: 'Covers/front.jpg', size: 3 },
     ]);
-  });
-
-  it('exposes the info dictionary range for the info-hash', () => {
-    const info = { name: 'x', 'piece length': 1, pieces: 'y', length: 1 };
-    const data = bencode({ announce: 'a', info });
-    const [start, end] = parseTorrent(data).infoRange;
-    const expected = createHash('sha1').update(bencode(info)).digest('hex');
-    expect(createHash('sha1').update(data.subarray(start, end)).digest('hex')).toBe(expected);
   });
 
   it('rejects invalid data', () => {

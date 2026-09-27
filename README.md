@@ -36,7 +36,7 @@
 ## Fonctionnalités
 
 - **AllDebrid.** Le service debrid récupère le torrent, puis le NAS télécharge les fichiers en
-  HTTPS. Le NAS ne fait jamais de P2P. D'autres services (Real-Debrid, TorBox) pourront suivre.
+  HTTPS. Le NAS ne fait jamais de P2P.
 - **Liens magnet** (un ou plusieurs à la fois), hash, ou **fichiers `.torrent`** : glisser-déposer
   sur ordinateur, app Fichiers sur iPhone.
 - **Le bon dossier.** Des destinations (Films → `video/Films`, Séries → `video/Séries`…) se créent
@@ -95,6 +95,10 @@ depuis le Centre de paquets).
 Le premier qui ouvre l'app crée le compte : faire cette étape avant d'ouvrir l'accès depuis
 l'extérieur.
 
+`PUID` et `PGID` indiquent à qui appartiennent les fichiers de `./data`. `1026:100` correspond au
+premier utilisateur créé sur le NAS et au groupe `users` ; la commande `id`, en SSH, permet de le
+vérifier. Ailleurs qu'avec Container Manager, `docker compose up -d` suffit.
+
 ### Un compte DSM dédié (conseillé)
 
 L'app n'a besoin que de Download Station et des dossiers de téléchargement. Un compte à part
@@ -109,12 +113,6 @@ limite ce qu'elle peut faire sur le NAS :
 Les fichiers téléchargés appartiennent alors à ce compte ; les droits des dossiers partagés
 restent ceux du NAS.
 
-`PUID` et `PGID` indiquent à qui appartiennent les fichiers de `./data`. `1026:100` correspond au
-premier utilisateur créé sur le NAS et au groupe `users` ; la commande `id`, en SSH, permet de le
-vérifier.
-
-Ailleurs qu'avec Container Manager, `docker compose up -d` suffit.
-
 ## Mise à jour
 
 Dans **Container Manager** :
@@ -128,8 +126,9 @@ Dans **Container Manager** :
 Ailleurs : `docker compose pull && docker compose up -d`.
 
 Compte, réglages, clés API, sessions et téléchargements en cours sont dans le dossier `data` du
-projet : c'est lui qu'il faut sauvegarder. Il contient aussi le mot de passe chiffré du compte
-DSM et sa clé : la sauvegarde doit rester privée.
+projet, dans des fichiers JSON lisibles uniquement par leur propriétaire : c'est lui qu'il faut
+sauvegarder. Il contient aussi le mot de passe chiffré du compte DSM et sa clé (`secret.key`) : la
+sauvegarde doit rester privée.
 
 ## Configuration
 
@@ -145,10 +144,6 @@ l'app. Le reste passe par des variables d'environnement.
 | `AUTH`              | `password`      | `none` : pas de connexion à l'app, un proxy inversé s'en charge (voir plus bas). |
 | `SESSION_TTL_DAYS`  | `30`            | Déconnexion après ce nombre de jours sans ouvrir l'app.                          |
 | `LOG_LEVEL`         | `info`          | `debug`, `info`, `warn` ou `error`.                                              |
-
-Les données (compte, réglages, sessions, historique) sont stockées dans `/data`, dans des
-fichiers JSON lisibles uniquement par leur propriétaire, avec `secret.key`, la clé qui chiffre le
-mot de passe du compte DSM.
 
 ## Comptes et sécurité
 
@@ -226,24 +221,22 @@ npm install
 npm run demo          # tout-en-un : http://localhost:5173, avec un faux NAS et des exemples
 ```
 
-`npm run demo` lance l'interface (rechargement à chaud), l'API et des simulations du NAS et
-d'AllDebrid, avec des réglages et des téléchargements d'exemple. On s'y connecte avec
+`npm run demo` lance l'interface et l'API, rechargées à chaque modification, et des simulations
+du NAS et d'AllDebrid, avec des réglages et des téléchargements d'exemple. On s'y connecte avec
 `demo` / `demo1234`. Avec `DEMO_SEED=0`, l'app démarre comme au premier lancement ; comptes du
 faux NAS pour connecter Download Station :
 
-- `syno-debrid` / `syno-debrid`, `admin` / `admin` ou `paul` / `paul` ;
+- `syno-debrid` / `syno-debrid` ou `paul` / `paul` ;
 - `secure` / `secure` : validation en deux étapes, code `123456`.
 
 Pour travailler avec un vrai NAS, copier `.env.example` en `.env` puis lancer `npm run dev` (API
-sur :8080, interface sur http://localhost:5173) : l'adresse du NAS se saisit dans l'app. L'adresse
-d'AllDebrid est intégrée. `npm run dev:mock` lance seulement les simulations,
-sur le port 5055 (lignes « Without a NAS » de `.env.example`).
+sur :8080, interface sur http://localhost:5173) : l'adresse du NAS se saisit dans l'app.
 
 ```bash
 npm test              # tests (Vitest)
 npm run lint && npm run typecheck
 npm run build && npm start
-npm run screenshots   # régénère les captures du README (Chromium)
+npm run build && npm run screenshots   # captures du README (Chromium de Playwright, ou CHROMIUM_PATH)
 ```
 
 Stack : Node.js 24, TypeScript, [Hono](https://hono.dev) côté serveur,

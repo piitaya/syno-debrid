@@ -13,12 +13,12 @@ import { sharedStyles } from './styles.js';
  * `renderStatus()` or `renderProgress()` include `statusStyles`.
  */
 
-export type StatusTone = 'neutral' | 'success' | 'warning' | 'danger';
+type StatusTone = 'neutral' | 'success' | 'warning' | 'danger';
 
 /** Still running (a failed job is not). */
 export const isActiveJob = (job: JobView): boolean => ACTIVE_JOB_STATUSES.includes(job.status);
 
-export function statusTone(job: JobView): StatusTone {
+function statusTone(job: JobView): StatusTone {
   switch (job.status) {
     case 'completed':
       return 'success';
@@ -31,7 +31,7 @@ export function statusTone(job: JobView): StatusTone {
   }
 }
 
-export interface StatusOptions {
+interface StatusOptions {
   /** Appends the error message to « Échec » (off when a notice already shows it). */
   reason?: boolean;
 }
@@ -40,7 +40,7 @@ export interface StatusOptions {
  * What the job is doing, as segments shown « a · b · c »: the first one says the state, the
  * others add numbers (sizes, speed, sources) that can be left out when space runs short.
  */
-export function statusParts(job: JobView, { reason = true }: StatusOptions = {}): string[] {
+function statusParts(job: JobView, { reason = true }: StatusOptions = {}): string[] {
   const provider = PROVIDERS[job.provider].name;
   let parts: string[];
   switch (job.status) {
@@ -99,15 +99,11 @@ export function statusParts(job: JobView, { reason = true }: StatusOptions = {})
   return parts.filter(Boolean);
 }
 
-/** The status as one line of text. */
-export const statusLabel = (job: JobView, options?: StatusOptions): string =>
-  statusParts(job, options).join(' · ');
-
 /**
  * Progress bar of a running job: a fraction, 'indeterminate', or null when it has none.
  * A job waiting for Download Station gets a still bar: nothing is moving.
  */
-export function jobProgress(job: JobView): number | 'indeterminate' | null {
+function jobProgress(job: JobView): number | 'indeterminate' | null {
   if (!isActiveJob(job)) return null;
   if (job.status === 'waiting_nas') return job.progress ?? 0;
   if (job.status === 'sending' || job.progress === null) return 'indeterminate';
@@ -227,6 +223,13 @@ export const statusStyles = css`
   .progress.remote > span {
     background: var(--text-secondary);
   }
+
+  .percent {
+    flex: none;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
 `;
 
 /** A download in the list: category icon, name, status line, progress, chevron. */
@@ -261,10 +264,6 @@ export class DdsDownloadRow extends LitElement {
         padding: 10px 16px;
       }
 
-      .row:focus-visible {
-        box-shadow: inset var(--focus-ring);
-      }
-
       .main {
         display: grid;
         flex: 1;
@@ -295,13 +294,9 @@ export class DdsDownloadRow extends LitElement {
        * for two digits: « 100 % » only shows for a moment.
        */
       .percent {
-        flex: none;
         min-width: 2.3em;
         margin-left: -4px;
-        font-size: 13px;
-        font-weight: 600;
         text-align: right;
-        color: var(--text-secondary);
       }
 
       .percent + .chevron {

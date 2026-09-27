@@ -8,7 +8,6 @@ export interface StoredAccount {
   username: string;
   /** `scrypt$N$r$p$salt$hash`, salt and hash in base64. */
   passwordHash: string;
-  createdAt: number;
 }
 
 const MAX_PASSWORD_LENGTH = 256;
@@ -46,9 +45,6 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   return key.length === expected.length && timingSafeEqual(key, expected);
 }
 
-/** Hash checked when there is no account, so that a failed sign-in always takes as long. */
-const decoy = hashPassword(randomBytes(16).toString('base64'));
-
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
@@ -73,7 +69,7 @@ const sameUser = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 /**
  * The account that signs in to the app. Deleting `account.json` (then restarting) resets it: the
- * app asks for a new one, along with the Download Station login.
+ * app asks for a new one.
  */
 export class Account {
   constructor(private readonly file: JsonFile<StoredAccount | null>) {}
@@ -88,14 +84,12 @@ export class Account {
 
   async create(username: string, password: string): Promise<void> {
     if (this.file.data) throw new HttpError(403, 'forbidden');
-    this.write({ username, passwordHash: await hashPassword(password), createdAt: Date.now() });
+    this.write({ username, passwordHash: await hashPassword(password) });
   }
 
-  /** Whether the username and password are the account's. Takes as long either way. */
+  /** Whether the username and password are the account's; a wrong username takes as long. */
   async check(username: string, password: string): Promise<boolean> {
-    const account = this.file.data;
-    const valid = await verifyPassword(password, account?.passwordHash ?? (await decoy));
-    return valid && !!account && sameUser(username, account.username);
+    return (await this.checkPassword(password)) && sameUser(username, this.username ?? '');
   }
 
   async checkPassword(password: string): Promise<boolean> {
@@ -111,6 +105,6 @@ export class Account {
     this.file.data = account;
     // Written at once: nothing left to write on shutdown, when account.json may have been
     // deleted to reset the account.
-    this.file.flushSync();
+    this.file.flush();
   }
 }

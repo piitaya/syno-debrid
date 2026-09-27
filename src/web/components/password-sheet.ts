@@ -2,14 +2,12 @@ import { LitElement, css, html } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { live } from 'lit/directives/live.js';
 import { MIN_PASSWORD_LENGTH } from '../../shared/types.js';
-import { api } from '../api.js';
+import { api, errorInfo } from '../api.js';
 import { errorMessage, t } from '../i18n.js';
 import { store } from '../store.js';
-import { inlineInputStyles } from './folder-picker.js';
-import { errorInfo } from './provider-sheet.js';
 import type { DdsSheet } from './sheet.js';
 import './sheet.js';
-import { sharedStyles } from './styles.js';
+import { inlineInputStyles, sharedStyles } from './styles.js';
 
 type Field = 'current' | 'password' | 'confirm';
 
@@ -53,7 +51,7 @@ export class DdsPasswordSheet extends LitElement {
       return void this.focusField('password');
     }
     if (password !== confirm) {
-      this.error = t('welcome.mismatch');
+      this.error = t('password.mismatch');
       return void this.focusField('confirm', true);
     }
     this.saving = true;
@@ -71,12 +69,6 @@ export class DdsPasswordSheet extends LitElement {
     } finally {
       this.saving = false;
     }
-  }
-
-  private onKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || event.isComposing) return;
-    event.preventDefault();
-    void this.save();
   }
 
   override render() {
@@ -103,7 +95,7 @@ export class DdsPasswordSheet extends LitElement {
           <div class="group">
             ${this.renderField('current', t('password.current'), 'current-password')}
             ${this.renderField('password', t('password.new'), 'new-password')}
-            ${this.renderField('confirm', t('welcome.confirm'), 'new-password')}
+            ${this.renderField('confirm', t('password.confirm'), 'new-password')}
           </div>
           <p class="section-footer">${t('password.footer')}</p>
         </section>
@@ -112,7 +104,7 @@ export class DdsPasswordSheet extends LitElement {
   }
 
   private renderField(field: Field, placeholder: string, autocomplete: string) {
-    return html`<div class="row field">
+    return html`<div class="row input-row">
       <input
         id=${field}
         class="inline-input"
@@ -122,7 +114,6 @@ export class DdsPasswordSheet extends LitElement {
         autocomplete=${autocomplete}
         .value=${live(this.values[field])}
         @input=${(event: Event) => this.set(field, (event.target as HTMLInputElement).value)}
-        @keydown=${this.onKeyDown}
       />
     </div>`;
   }
@@ -131,11 +122,6 @@ export class DdsPasswordSheet extends LitElement {
     sharedStyles,
     inlineInputStyles,
     css`
-      .field {
-        padding-top: 4px;
-        padding-bottom: 4px;
-      }
-
       .username {
         position: absolute;
         width: 1px;

@@ -9,14 +9,12 @@ export interface MockUser {
   password: string;
   /** When set, logging in requires this 2FA code. */
   otp?: string;
-  isManager?: boolean;
   /** False: File Station is denied to the account. */
   fileStation?: boolean;
 }
 
 export interface MockTask {
   id: string;
-  username: string;
   uri: string;
   destination: string;
   size: number;
@@ -28,7 +26,7 @@ export interface MockTask {
 }
 
 export interface MockDsmOptions {
-  users?: Record<string, MockUser>;
+  users: Record<string, MockUser>;
   folders?: string[];
   /** Download speed of simulated tasks, bytes per second. */
   speed?: number;
@@ -39,36 +37,10 @@ const API_INFO = {
   'SYNO.API.Auth': { maxVersion: 7, minVersion: 1, path: 'entry.cgi' },
   'SYNO.DownloadStation.Info': { maxVersion: 2, minVersion: 1, path: 'DownloadStation/info.cgi' },
   'SYNO.DownloadStation.Task': { maxVersion: 3, minVersion: 1, path: 'DownloadStation/task.cgi' },
-  'SYNO.DownloadStation2.Task': {
-    maxVersion: 2,
-    minVersion: 1,
-    path: 'entry.cgi',
-    requestFormat: 'JSON',
-  },
-  'SYNO.DownloadStation2.Settings.Location': {
-    maxVersion: 1,
-    minVersion: 1,
-    path: 'entry.cgi',
-    requestFormat: 'JSON',
-  },
-  'SYNO.FileStation.List': {
-    maxVersion: 2,
-    minVersion: 1,
-    path: 'entry.cgi',
-    requestFormat: 'JSON',
-  },
-  'SYNO.FileStation.CreateFolder': {
-    maxVersion: 2,
-    minVersion: 1,
-    path: 'entry.cgi',
-    requestFormat: 'JSON',
-  },
-  'SYNO.FileStation.Rename': {
-    maxVersion: 2,
-    minVersion: 1,
-    path: 'entry.cgi',
-    requestFormat: 'JSON',
-  },
+  'SYNO.DownloadStation2.Task': { maxVersion: 2, minVersion: 1, path: 'entry.cgi' },
+  'SYNO.FileStation.List': { maxVersion: 2, minVersion: 1, path: 'entry.cgi' },
+  'SYNO.FileStation.CreateFolder': { maxVersion: 2, minVersion: 1, path: 'entry.cgi' },
+  'SYNO.FileStation.Rename': { maxVersion: 2, minVersion: 1, path: 'entry.cgi' },
 };
 
 /** Parses a JSON-encoded parameter, falling back to the raw string (like DSM seems to do). */
@@ -81,26 +53,12 @@ function jsonParam<T>(value: string | undefined): T | string | undefined {
   }
 }
 
-export function createMockDsm(options: MockDsmOptions = {}) {
+export function createMockDsm(options: MockDsmOptions) {
   const now = options.now ?? Date.now;
-  const users: Record<string, MockUser> = options.users ?? {
-    admin: { password: 'admin', isManager: true },
-  };
-  const folders = new Set(
-    (options.folders ?? ['/video', '/video/Films', '/video/Séries', '/music', '/downloads']).map(
-      (path) => path.toLowerCase(),
-    ),
-  );
-  const folderNames = new Map<string, string>();
-  for (const path of options.folders ?? [
-    '/video',
-    '/video/Films',
-    '/video/Séries',
-    '/music',
-    '/downloads',
-  ]) {
-    folderNames.set(path.toLowerCase(), path);
-  }
+  const { users } = options;
+  const speed = options.speed ?? 40 * 1024 * 1024;
+  /** Folders by lowercase path (DSM paths ignore case), with their own case. */
+  const folders = new Map<string, string>();
   const sessions = new Map<string, string>();
   const tasks = new Map<string, MockTask>();
   const devices = new Map<string, string>();
@@ -110,8 +68,7 @@ export function createMockDsm(options: MockDsmOptions = {}) {
   const state = {
     /** False: Download Station is not installed (its APIs are not listed). */
     downloadStation: true,
-    speed: options.speed ?? 40 * 1024 * 1024,
-    calls: [] as string[],
+    logins: 0,
     renamed: [] as string[],
   };
 
@@ -119,27 +76,27 @@ export function createMockDsm(options: MockDsmOptions = {}) {
     const parts = path.split('/').filter(Boolean);
     for (let i = 1; i <= parts.length; i++) {
       const sub = `/${parts.slice(0, i).join('/')}`;
-      folders.add(sub.toLowerCase());
-      if (!folderNames.has(sub.toLowerCase())) folderNames.set(sub.toLowerCase(), sub);
+      if (!folders.has(sub.toLowerCase())) folders.set(sub.toLowerCase(), sub);
     }
   };
+  for (const path of options.folders ?? ['/video/Films', '/video/Séries', '/music', '/downloads']) {
+    addFolder(path);
+  }
 
-  const taskView = (task: MockTask, ds2: boolean) => {
+  const taskView = (task: MockTask) => {
     const elapsed = Math.max(0, (now() - task.createdAt) / 1000 - 0.5);
     const downloaded = Math.min(task.size, Math.floor(elapsed * task.speed));
     const done = downloaded >= task.size;
-    let status: string | number = task.fail
+    const status = task.fail
       ? 'error'
       : done
         ? 'finished'
         : elapsed > 0
           ? 'downloading'
           : 'waiting';
-    if (ds2) status = { waiting: 1, downloading: 2, finished: 5, error: 102 }[status] ?? 2;
     return {
       id: task.id,
       type: 'https',
-      username: task.username,
       title: decodeURIComponent(task.uri.split('/').pop()?.split('?')[0] ?? 'file'),
       size: String(task.size),
       status,
@@ -178,7 +135,6 @@ export function createMockDsm(options: MockDsmOptions = {}) {
   app.post('/webapi/*', async (c) => {
     const params = (await c.req.parseBody()) as Record<string, string>;
     const { api, method } = params;
-    state.calls.push(`${api}.${method}`);
     const sid = params._sid;
     const username = sid ? sessions.get(sid) : undefined;
     const legacy = c.req.path.includes('/DownloadStation/');
@@ -188,6 +144,7 @@ export function createMockDsm(options: MockDsmOptions = {}) {
         if (sid) sessions.delete(sid);
         return c.json({ success: true });
       }
+      state.logins++;
       const account = (params.account ?? '').toLowerCase();
       const user = users[account];
       if (!user || user.password !== params.passwd) return c.json(fail(400));
@@ -216,14 +173,7 @@ export function createMockDsm(options: MockDsmOptions = {}) {
     if (api.startsWith('SYNO.FileStation') && user.fileStation === false) return c.json(fail(160));
 
     if (api === 'SYNO.DownloadStation.Info') {
-      return c.json({
-        success: true,
-        data: { is_manager: user.isManager ?? false, version: 4000, version_string: '4.0.0' },
-      });
-    }
-
-    if (api === 'SYNO.DownloadStation2.Settings.Location') {
-      return c.json({ success: true, data: { default_destination: 'downloads' } });
+      return c.json({ success: true, data: { version: 4000, version_string: '4.0.0' } });
     }
 
     if (api === 'SYNO.DownloadStation2.Task' && method === 'create') {
@@ -242,50 +192,29 @@ export function createMockDsm(options: MockDsmOptions = {}) {
         const size = Number(
           new URL(uri.replace(/%2C/g, ',')).searchParams.get('size') ?? 700 * 1024 * 1024,
         );
-        tasks.set(id, {
-          id,
-          username,
-          uri,
-          destination,
-          size,
-          createdAt: now(),
-          speed: state.speed,
-          deleted: false,
-        });
+        tasks.set(id, { id, uri, destination, size, createdAt: now(), speed, deleted: false });
         return id;
       });
       return c.json({ success: true, data: { list_id: [], task_id: ids } });
     }
 
-    if (api === 'SYNO.DownloadStation.Task' && (method === 'list' || method === 'getinfo')) {
-      const wanted = method === 'getinfo' ? new Set((params.id ?? '').split(',')) : null;
-      const list = [...tasks.values()]
-        .filter((task) => task.username === username && !task.deleted)
-        .filter((task) => !wanted || wanted.has(task.id))
-        .map((task) => taskView(task, false));
+    if (api === 'SYNO.DownloadStation.Task' && method === 'list') {
+      const list = [...tasks.values()].filter((task) => !task.deleted).map(taskView);
       return c.json({ success: true, data: { tasks: list, offset: 0, total: list.length } });
-    }
-
-    if (api === 'SYNO.DownloadStation2.Task' && method === 'list') {
-      const list = [...tasks.values()]
-        .filter((task) => task.username === username && !task.deleted)
-        .map((task) => taskView(task, true));
-      return c.json({ success: true, data: { task: list, offset: 0, total: list.length } });
     }
 
     if (api === 'SYNO.DownloadStation.Task' && method === 'delete') {
       const ids = (params.id ?? '').split(',');
       for (const id of ids) {
         const task = tasks.get(id);
-        if (task && task.username === username) task.deleted = true;
+        if (task) task.deleted = true;
       }
       return c.json({ success: true, data: ids.map((id) => ({ error: 0, id })) });
     }
 
     if (api === 'SYNO.FileStation.List' && method === 'list_share') {
-      const shares = [...folders]
+      const shares = [...folders.values()]
         .filter((path) => path.split('/').length === 2)
-        .map((path) => folderNames.get(path) ?? path)
         .sort()
         .map((path) => ({ isdir: true, name: path.slice(1), path }));
       return c.json({ success: true, data: { shares, offset: 0, total: shares.length } });
@@ -295,9 +224,10 @@ export function createMockDsm(options: MockDsmOptions = {}) {
       const parent = String(jsonParam<string>(params.folder_path) ?? '').toLowerCase();
       if (!folders.has(parent)) return c.json(fail(408));
       const depth = parent.split('/').length + 1;
-      const files = [...folders]
-        .filter((path) => path.startsWith(`${parent}/`) && path.split('/').length === depth)
-        .map((path) => folderNames.get(path) ?? path)
+      const files = [...folders.values()]
+        .filter(
+          (path) => path.toLowerCase().startsWith(`${parent}/`) && path.split('/').length === depth,
+        )
         .sort()
         .map((path) => ({ isdir: true, name: path.split('/').pop(), path }));
       return c.json({ success: true, data: { files, offset: 0, total: files.length } });
@@ -338,10 +268,7 @@ export function createMockDsm(options: MockDsmOptions = {}) {
     users,
     tasks,
     folders,
-    sessions,
     /** Expires every session, like a DSM reboot. */
     expireSessions: () => sessions.clear(),
   };
 }
-
-export type MockDsm = ReturnType<typeof createMockDsm>;

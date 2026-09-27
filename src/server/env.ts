@@ -1,5 +1,4 @@
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { PROVIDER_IDS, type ProviderId } from '../shared/types.js';
 
 export interface Env {
@@ -20,11 +19,6 @@ export interface Env {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
 }
 
-function bool(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined || value.trim() === '') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
-}
-
 function int(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
   if (Number.isNaN(parsed)) return fallback;
@@ -35,18 +29,7 @@ function trimSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-const bundled = import.meta.url.endsWith('/dist/server/index.js');
-
-/** Variables of earlier versions: the NAS and the account are now set up in the app. */
-export const OBSOLETE_VARIABLES = [
-  'SYNOLOGY_URL',
-  'SYNOLOGY_INSECURE_TLS',
-  'ALLOWED_USERS',
-  'ADMIN_USERS',
-] as const;
-
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const production = source.NODE_ENV === 'production';
   const providerKeys: Partial<Record<ProviderId, string>> = {};
   for (const id of PROVIDER_IDS) {
     const key = source[`${id.toUpperCase()}_API_KEY`]?.trim();
@@ -57,16 +40,13 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   return {
     port: int(source.PORT, 8080, 1, 65535),
     host: source.HOST?.trim() || '0.0.0.0',
-    dataDir: resolve(source.DATA_DIR?.trim() || (production ? '/data' : './data')),
-    webRoot: resolve(
-      source.WEB_ROOT?.trim() ||
-        (bundled ? fileURLToPath(new URL('../web/', import.meta.url)) : './dist/web'),
-    ),
+    dataDir: resolve(source.DATA_DIR?.trim() || './data'),
+    webRoot: resolve('dist/web'),
     version:
       typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : (source.npm_package_version ?? 'dev'),
     auth: source.AUTH?.trim().toLowerCase() === 'none' ? 'none' : 'password',
     sessionTtlDays: int(source.SESSION_TTL_DAYS, 30, 1, 365),
-    trustProxy: bool(source.TRUST_PROXY, false),
+    trustProxy: source.TRUST_PROXY?.trim().toLowerCase() === 'true',
     providerKeys,
     providerUrls: {
       alldebrid: trimSlash(source.ALLDEBRID_API_URL?.trim() || 'https://api.alldebrid.com'),

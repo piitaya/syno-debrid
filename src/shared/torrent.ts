@@ -17,8 +17,6 @@ export interface TorrentMeta {
   name: string;
   totalSize: number;
   files: TorrentFileEntry[];
-  /** Byte range of the bencoded `info` dictionary (used to compute the info-hash). */
-  infoRange: [number, number];
 }
 
 export class TorrentParseError extends Error {}
@@ -28,7 +26,6 @@ const MAX_DEPTH = 64;
 
 class Reader {
   pos = 0;
-  infoRange: [number, number] | null = null;
 
   constructor(private readonly data: Uint8Array) {}
 
@@ -71,9 +68,7 @@ class Reader {
       const dict: BDict = Object.create(null) as BDict;
       while (this.byte() !== 0x65) {
         const key = decoder.decode(this.readBytes());
-        const valueStart = this.pos;
         dict[key] = this.read(depth + 1);
-        if (depth === 0 && key === 'info') this.infoRange = [valueStart, this.pos];
       }
       this.pos++;
       return dict;
@@ -120,7 +115,7 @@ export function parseTorrent(data: Uint8Array): TorrentMeta {
   const root = reader.read();
   if (!isDict(root)) throw new TorrentParseError('Not a torrent file');
   const info = root['info'];
-  if (!isDict(info) || !reader.infoRange) throw new TorrentParseError('Missing info dictionary');
+  if (!isDict(info)) throw new TorrentParseError('Missing info dictionary');
 
   const name = text(info['name.utf-8']) ?? text(info['name']);
   if (!name) throw new TorrentParseError('Missing torrent name');
@@ -143,5 +138,5 @@ export function parseTorrent(data: Uint8Array): TorrentMeta {
   if (files.length === 0) throw new TorrentParseError('Torrent has no files');
 
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-  return { name, totalSize, files, infoRange: reader.infoRange };
+  return { name, totalSize, files };
 }

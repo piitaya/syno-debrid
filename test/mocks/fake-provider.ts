@@ -6,10 +6,9 @@ import type {
   DebridProvider,
   DebridStatus,
 } from '../../src/server/debrid/types.js';
-import type { ProviderAccount, ProviderId } from '../../src/shared/types.js';
+import type { ProviderAccount } from '../../src/shared/types.js';
 
 interface FakeTorrent {
-  id: string;
   content: DebridContent;
   /** Number of status polls before the torrent is ready. */
   pollsLeft: number;
@@ -19,7 +18,6 @@ interface FakeTorrent {
 
 /** In-memory debrid service for job manager tests. */
 export class FakeProvider implements DebridProvider {
-  readonly id: ProviderId = 'alldebrid';
   readonly torrents = new Map<string, FakeTorrent>();
   nextContent: DebridContent = {
     name: 'Show.S01',
@@ -31,7 +29,6 @@ export class FakeProvider implements DebridProvider {
   };
   nextPolls = 0;
   nextDead = false;
-  unlockBase = 'https://cdn.example/dl';
   private counter = 0;
 
   async account(): Promise<ProviderAccount> {
@@ -41,7 +38,6 @@ export class FakeProvider implements DebridProvider {
   private add(): AddedTorrent {
     const id = String(++this.counter);
     this.torrents.set(id, {
-      id,
       content: this.nextContent,
       pollsLeft: this.nextPolls,
       dead: this.nextDead,
@@ -89,8 +85,8 @@ export class FakeProvider implements DebridProvider {
     return this.torrents.get(id)!.content;
   }
 
-  async unlock(_id: string, file: DebridFile): Promise<string> {
-    return `${this.unlockBase}/${file.ref}/${encodeURIComponent(file.path.split('/').pop()!)}?size=${file.size}`;
+  async unlock(file: DebridFile): Promise<string> {
+    return `https://cdn.example/dl/${file.ref}/${encodeURIComponent(file.path.split('/').pop()!)}?size=${file.size}`;
   }
 
   async delete(id: string): Promise<void> {

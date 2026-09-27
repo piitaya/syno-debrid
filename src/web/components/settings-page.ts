@@ -1,16 +1,14 @@
-import { LitElement, css, html, nothing } from 'lit';
+import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { live } from 'lit/directives/live.js';
 import { repeat } from 'lit/directives/repeat.js';
 import {
-  PROVIDER_IDS,
   PROVIDERS,
   type AppSettings,
   type Category,
-  type ProviderId,
   type SessionInfo,
 } from '../../shared/types.js';
-import { api } from '../api.js';
+import { api, errorInfo } from '../api.js';
 import { breakable } from '../format.js';
 import { errorMessage, t } from '../i18n.js';
 import {
@@ -31,11 +29,10 @@ import type { DdsPasswordSheet } from './password-sheet.js';
 import './password-sheet.js';
 import {
   checkProvider,
-  errorInfo,
   premiumLabel,
+  PROVIDER,
   type DdsProviderSheet,
   type ProviderCheck,
-  type ProviderCheckedDetail,
 } from './provider-sheet.js';
 import { sharedStyles } from './styles.js';
 
@@ -49,10 +46,10 @@ const initials = (name: string) => (name.match(/[A-Z]/g) ?? [name]).join('').sli
 
 @customElement('dds-settings-page')
 export class DdsSettingsPage extends LitElement {
-  /** Account check of each configured provider. */
-  @state() private checks: Partial<Record<ProviderId, ProviderCheck>> = {};
   /** Check of the connection to Download Station. */
   @state() private nasCheck: NasCheck | null = null;
+  /** Account check of the debrid API key. */
+  @state() private providerCheck: ProviderCheck | null = null;
   /** Destinations are being reordered. */
   @state() private reordering = false;
 
@@ -61,9 +58,9 @@ export class DdsSettingsPage extends LitElement {
   @query('dds-nas-sheet') private nasSheet!: DdsNasSheet;
   @query('dds-password-sheet') private passwordSheet!: DdsPasswordSheet;
 
-  /** Outdates a check still in flight when the provider sheet reports a newer one. */
-  private checkRuns: Partial<Record<ProviderId, number>> = {};
+  /** Outdate a check still in flight when a sheet reports a newer one. */
   private nasCheckRun = 0;
+  private providerCheckRun = 0;
   /** In-place changes are sent one after the other. */
   private saves: Promise<void> = Promise.resolve();
   private pendingSaves = 0;
@@ -76,12 +73,7 @@ export class DdsSettingsPage extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.checkNas();
-    this.checkProviders();
-  }
-
-  override disconnectedCallback(): void {
-    super.disconnectedCallback();
-    this.reordering = false;
+    this.checkProvider();
   }
 
   private checkNas(): void {
@@ -98,29 +90,18 @@ export class DdsSettingsPage extends LitElement {
     this.nasCheck = event.detail;
   }
 
-  private checkProviders(): void {
-    if (!store.settings) return;
-    for (const { id, configured } of store.settings.providers) {
-      if (!configured) continue;
-      const run = (this.checkRuns[id] = (this.checkRuns[id] ?? 0) + 1);
-      this.setCheck(id, { status: 'checking' });
-      void checkProvider(id).then((check) => {
-        if (this.checkRuns[id] === run) this.setCheck(id, check);
-      });
-    }
+  private checkProvider(): void {
+    if (!store.settings?.providers.some((provider) => provider.configured)) return;
+    const run = ++this.providerCheckRun;
+    this.providerCheck = { status: 'checking' };
+    void checkProvider().then((check) => {
+      if (this.providerCheckRun === run) this.providerCheck = check;
+    });
   }
 
-  private setCheck(id: ProviderId, check: ProviderCheck | null): void {
-    const checks = { ...this.checks };
-    if (check) checks[id] = check;
-    else delete checks[id];
-    this.checks = checks;
-  }
-
-  private onProviderChecked(event: CustomEvent<ProviderCheckedDetail>): void {
-    const { id, check } = event.detail;
-    this.checkRuns[id] = (this.checkRuns[id] ?? 0) + 1;
-    this.setCheck(id, check);
+  private onProviderChecked(event: CustomEvent<ProviderCheck | null>): void {
+    this.providerCheckRun++;
+    this.providerCheck = event.detail;
   }
 
   /** Shows an in-place change at once, then saves it. */
@@ -193,92 +174,73 @@ export class DdsSettingsPage extends LitElement {
 
   private renderNas(settings: AppSettings) {
     const { nas } = settings;
-    const check = nas ? this.nasCheck : null;
-    const lines = nas ? [nas.account, nas.url] : [];
-    if (check?.status === 'error') lines.push(errorMessage(check.error.code).replace(/\.$/, ''));
-    const [value, tone] = !nas
-      ? [t('provider.notConfigured'), 'off']
-      : check?.status === 'ok'
-        ? [t('provider.connected'), 'ok']
-        : check?.status === 'error'
-          ? [t('provider.error'), 'bad']
-          : [t('provider.checking'), ''];
-
     return html`<section class="section">
       <h2 class="section-header">${t('settings.nas')}</h2>
       <div class="group with-icons">
-        <button
-          class="row ${lines.length ? 'multiline' : ''}"
-          @click=${() => this.nasSheet.open(this.nasCheck)}
-        >
-          <span class="row-icon"><dds-icon .path=${mdiNas}></dds-icon></span>
-          <span class="row-main">
-            <span class="title-line">
-              <span class="row-title">${t('nas.title')}</span>
-              <span class="row-value ${tone}">${value}</span>
-            </span>
-            ${
-              lines.length
-                ? html`<span class="row-subtitle details wrap">
-                    ${lines.map((line) => html`<span>${line}</span>`)}
-                  </span>`
-                : nothing
-            }
-          </span>
-          <dds-icon class="chevron" .path=${mdiChevronRight}></dds-icon>
-        </button>
+        ${this.renderConnection({
+          icon: html`<span class="row-icon"><dds-icon .path=${mdiNas}></dds-icon></span>`,
+          title: t('nas.title'),
+          configured: !!nas,
+          check: nas ? this.nasCheck : null,
+          lines: nas ? [nas.account, nas.url] : [],
+          open: () => this.nasSheet.open(this.nasCheck),
+        })}
       </div>
     </section>`;
   }
 
   private renderServices(settings: AppSettings) {
-    const configuredCount = settings.providers.filter((p) => p.configured).length;
+    const name = PROVIDERS[PROVIDER].name;
+    const configured = settings.providers.some((provider) => provider.configured);
+    const check = configured ? this.providerCheck : null;
     return html`<section class="section">
       <h2 class="section-header">${t('settings.services')}</h2>
       <div class="group with-icons">
-        ${PROVIDER_IDS.map((id) => {
-          const configured = settings.providers.some((p) => p.id === id && p.configured);
-          const isDefault = configured && configuredCount > 1 && settings.defaultProvider === id;
-          return this.renderProvider(id, configured, isDefault);
+        ${this.renderConnection({
+          icon: html`<span class="row-icon initials" aria-hidden="true">${initials(name)}</span>`,
+          title: name,
+          configured,
+          check,
+          lines:
+            check?.status === 'ok' ? [check.account.username, premiumLabel(check.account)] : [],
+          open: () => this.providerSheet.open(this.providerCheck),
         })}
       </div>
       <p class="section-footer">${t('settings.servicesFooter')}</p>
     </section>`;
   }
 
-  private renderProvider(id: ProviderId, configured: boolean, isDefault: boolean) {
-    const name = PROVIDERS[id].name;
-    const check = configured ? this.checks[id] : undefined;
-
-    // « demo-alldebrid · Par défaut » then « Premium jusqu’au … »: short lines that do not wrap.
-    const lines: string[] = [];
-    if (check?.status === 'ok') lines.push(check.account.username, premiumLabel(check.account));
-    if (check?.status === 'error') lines.push(errorMessage(check.error.code).replace(/\.$/, ''));
-    if (isDefault) {
-      lines[0] = lines[0] ? `${lines[0]} · ${t('settings.default')}` : t('settings.default');
-    }
-
-    const [value, tone] = !configured
-      ? [t('provider.notConfigured'), 'off']
+  /** A connection, its state on the title line and its details below, in short lines. */
+  private renderConnection(connection: {
+    icon: TemplateResult;
+    title: string;
+    configured: boolean;
+    check: NasCheck | ProviderCheck | null;
+    lines: string[];
+    open: () => void;
+  }) {
+    const { check } = connection;
+    const lines =
+      check?.status === 'error'
+        ? [...connection.lines, errorMessage(check.error.code).replace(/\.$/, '')]
+        : connection.lines;
+    const [value, tone] = !connection.configured
+      ? [t('check.notConfigured'), 'off']
       : check?.status === 'ok'
-        ? [t('provider.connected'), 'ok']
+        ? [t('check.connected'), 'ok']
         : check?.status === 'error'
-          ? [t('provider.error'), 'bad']
-          : [t('provider.checking'), ''];
-
-    return html`<button
-      class="row ${lines.length ? 'multiline' : ''}"
-      @click=${() => this.providerSheet.open(id, this.checks[id])}
-    >
-      <span class="row-icon initials" aria-hidden="true">${initials(name)}</span>
+          ? [t('check.error'), 'bad']
+          : [t('check.checking'), ''];
+    return html`<button class="row ${lines.length ? 'multiline' : ''}" @click=${connection.open}>
+      ${connection.icon}
       <span class="row-main">
         <span class="title-line">
-          <span class="row-title">${name}</span>
+          <span class="row-title">${connection.title}</span>
           <span class="row-value ${tone}">${value}</span>
         </span>
         ${
           lines.length
-            ? html`<span class="row-subtitle details">
+            ? html`<span class="row-subtitle details wrap">
                 ${lines.map((line) => html`<span>${line}</span>`)}
               </span>`
             : nothing
@@ -306,14 +268,7 @@ export class DdsSettingsPage extends LitElement {
         ${repeat(
           categories,
           (category) => category.id,
-          (category, index) =>
-            this.renderCategory(
-              category,
-              index,
-              categories.length,
-              category.id === settings.defaultCategoryId,
-              reordering,
-            ),
+          (category, index) => this.renderCategory(category, index, categories.length, reordering),
         )}
         ${
           reordering
@@ -330,20 +285,11 @@ export class DdsSettingsPage extends LitElement {
     </section>`;
   }
 
-  private renderCategory(
-    category: Category,
-    index: number,
-    count: number,
-    isDefault: boolean,
-    reordering: boolean,
-  ) {
+  private renderCategory(category: Category, index: number, count: number, reordering: boolean) {
     const content = html`
       <span class="row-icon"><dds-icon .path=${categoryIcon(category.icon)}></dds-icon></span>
       <span class="row-main">
-        <span class="title-line">
-          <span class="row-title wrap">${breakable(category.name)}</span>
-          ${isDefault ? html`<span class="row-value">${t('settings.default')}</span>` : nothing}
-        </span>
+        <span class="row-title wrap">${breakable(category.name)}</span>
         <span class="row-subtitle">${breakable(category.destination)}</span>
       </span>
     `;
@@ -457,14 +403,6 @@ export class DdsSettingsPage extends LitElement {
   static override styles = [
     sharedStyles,
     css`
-      .row:focus-visible {
-        box-shadow: inset var(--focus-ring);
-      }
-
-      .section-header h2 {
-        font: inherit;
-      }
-
       .initials {
         font-size: 12px;
         font-weight: 700;
@@ -525,10 +463,6 @@ export class DdsSettingsPage extends LitElement {
 
       .row-value.off {
         color: var(--text-secondary);
-      }
-
-      .row.accent {
-        color: var(--accent);
       }
 
       .move {

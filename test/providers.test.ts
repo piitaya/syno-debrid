@@ -1,9 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createProvider } from '../src/server/debrid/index.js';
-import type { DebridProvider } from '../src/server/debrid/types.js';
-import { loadEnv } from '../src/server/env.js';
+import { AllDebrid } from '../src/server/debrid/alldebrid.js';
 import { AppError } from '../src/server/errors.js';
-import { PROVIDER_IDS, type ProviderId } from '../src/shared/types.js';
 import { makeTorrent } from './helpers.js';
 import { createMockDebrid } from './mocks/debrid.js';
 import { listen } from './serve.js';
@@ -11,58 +8,47 @@ import { listen } from './serve.js';
 let clock = 1_000_000_000_000;
 const mock = createMockDebrid({ now: () => clock });
 let server: Awaited<ReturnType<typeof listen>>;
-let providers: (key?: string) => Record<ProviderId, DebridProvider>;
+let allDebrid: (key?: string) => AllDebrid;
 
 beforeAll(async () => {
   server = await listen(mock.app);
-  const env = loadEnv({ ALLDEBRID_API_URL: `${server.url}/alldebrid` });
-  providers = (key = 'good') =>
-    Object.fromEntries(PROVIDER_IDS.map((id) => [id, createProvider(id, key, env)])) as Record<
-      ProviderId,
-      DebridProvider
-    >;
+  allDebrid = (key = 'good') => new AllDebrid(key, `${server.url}/alldebrid`);
 });
 afterAll(() => server.close());
 
 let hashes = 0;
-const nextHash = () => (++hashes).toString(16).padStart(40, '0');
-const magnet = (name: string, hash = nextHash()) =>
-  `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}`;
+const magnet = (name: string) =>
+  `magnet:?xt=urn:btih:${(++hashes).toString(16).padStart(40, '0')}&dn=${encodeURIComponent(name)}`;
 
 /** Polls until the torrent is ready. */
-async function waitReady(provider: DebridProvider, id: string) {
-  let status = await provider.status(id);
+async function waitReady(id: string) {
+  let status = await allDebrid().status(id);
   for (let i = 0; i < 5 && status.state !== 'ready' && status.state !== 'error'; i++) {
     clock += 60_000;
-    status = await provider.status(status.id ?? id);
+    status = await allDebrid().status(id);
   }
   return status;
 }
 
-describe.each(PROVIDER_IDS)('%s', (id) => {
+describe('AllDebrid', () => {
   it('reads the account', async () => {
-    const account = await providers()[id].account();
-    expect(account.username).toMatch(/demo/);
-    expect(account.premium).toBe(true);
+    const account = await allDebrid().account();
+    expect(account).toMatchObject({ username: 'demo-alldebrid', premium: true });
     expect(account.premiumUntil).toBeGreaterThan(clock);
   });
 
   it('rejects a bad API key', async () => {
-    await expect(providers('bad')[id].account()).rejects.toMatchObject({ code: 'provider_auth' });
+    await expect(allDebrid('bad').account()).rejects.toMatchObject({ code: 'provider_auth' });
   });
 
   it('downloads a season pack: status, files with paths, direct links, delete', async () => {
-    const provider = providers()[id];
-    const hash = nextHash();
-    const added = await provider.addMagnet(magnet('Sintel.S01.1080p.WEB', hash), hash);
+    const provider = allDebrid();
+    const added = await provider.addMagnet(magnet('Sintel.S01.1080p.WEB'));
     expect(added.id).toBeTruthy();
-
-    const first = await provider.status(added.id);
-    expect(['queued', 'downloading']).toContain(first.state);
+    expect((await provider.status(added.id)).state).toBe('queued');
 
     clock += 30_000;
-    const status = await waitReady(provider, added.id);
-    expect(status.state).toBe('ready');
+    expect((await waitReady(added.id)).state).toBe('ready');
 
     const content = await provider.files(added.id);
     expect(content.multiFile).toBe(true);
@@ -71,38 +57,30 @@ describe.each(PROVIDER_IDS)('%s', (id) => {
     expect(paths).toContain('Sintel.S01E01.1080p.WEB.mkv');
     expect(paths).toContain('Subs/English.srt');
 
-    const url = await provider.unlock(added.id, content.files[0]!);
-    expect(url).toMatch(new RegExp(`^${server.url}/cdn/${id}/`));
+    const url = await provider.unlock(content.files[0]!);
+    expect(url).toMatch(new RegExp(`^${server.url}/cdn/`));
 
     await provider.delete(added.id);
     expect(mock.torrents.get(added.id)?.deleted).toBe(true);
   });
 
   it('uploads a .torrent file', async () => {
-    const provider = providers()[id];
-    const data = makeTorrent('Big.Buck.Bunny.mkv');
-    const added = await provider.addTorrent(data, 'bbb.torrent', null);
-    const status = await waitReady(provider, added.id);
-    expect(status.state).toBe('ready');
-    const content = await provider.files(added.id);
+    const added = await allDebrid().addTorrent(makeTorrent('Big.Buck.Bunny.mkv'), 'bbb.torrent');
+    expect((await waitReady(added.id)).state).toBe('ready');
+    const content = await allDebrid().files(added.id);
     expect(content).toMatchObject({ multiFile: false, files: [{ path: 'Big.Buck.Bunny.mkv' }] });
   });
 
   it('reports dead torrents', async () => {
-    const provider = providers()[id];
-    const added = await provider.addMagnet(magnet('Cosmos.dead'), null);
-    const status = await waitReady(provider, added.id);
+    const added = await allDebrid().addMagnet(magnet('Cosmos.dead'));
+    const status = await waitReady(added.id);
     expect(status.state).toBe('error');
     expect(status.error).toBeInstanceOf(AppError);
-    expect(['torrent_dead', 'torrent_failed']).toContain(status.error!.code);
+    expect(status.error!.code).toBe('torrent_dead');
   });
-});
 
-describe('alldebrid specifics', () => {
   it('maps invalid magnets', async () => {
-    await expect(
-      providers().alldebrid.addMagnet('magnet:?xt=urn:btih:zz', null),
-    ).rejects.toMatchObject({
+    await expect(allDebrid().addMagnet('magnet:?xt=urn:btih:zz')).rejects.toMatchObject({
       code: 'magnet_invalid',
     });
   });

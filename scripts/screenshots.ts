@@ -2,12 +2,11 @@
 // Usage: npm run build && npm run screenshots
 import { serve } from '@hono/node-server';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Browser, BrowserContextOptions, Page } from 'playwright-core';
+import { chromium, type Browser, type BrowserContextOptions, type Page } from 'playwright-core';
 import { createMockServer } from '../test/mocks/server.js';
-import { launchBrowser } from './browser.js';
+import { sampleDataDir, serverEnv, waitForServer } from './sample.js';
 
 const OUT = new URL('../docs/screenshots/', import.meta.url).pathname;
 const PORT = 8099;
@@ -22,49 +21,12 @@ mkdirSync(OUT, { recursive: true });
 const mock = createMockServer({ speed: 40 * 1024 * 1024 });
 const mockServer = serve({ fetch: mock.app.fetch, port: 5000, hostname: '127.0.0.1' });
 
-const dataDir = mkdtempSync(join(tmpdir(), 'dds-shots-'));
-writeFileSync(
-  join(dataDir, 'settings.json'),
-  JSON.stringify({
-    apiKeys: { alldebrid: 'demo' },
-    defaultProvider: 'alldebrid',
-    categories: [
-      { id: 'films', name: 'Films', icon: 'movie', destination: 'video/Films' },
-      { id: 'series', name: 'Séries', icon: 'tv', destination: 'video/Séries' },
-      { id: 'kids', name: 'Enfants', icon: 'kids', destination: 'video/Enfants' },
-      { id: 'music', name: 'Musique', icon: 'music', destination: 'music' },
-    ],
-    defaultCategoryId: 'films',
-    createSubfolder: true,
-    deleteFromDebrid: false,
-  }),
-);
-
 const server = spawn('node', ['dist/server/index.js'], {
-  env: {
-    ...process.env,
-    PORT: String(PORT),
-    HOST: '127.0.0.1',
-    DATA_DIR: dataDir,
-    ALLDEBRID_API_URL: `${NAS}/alldebrid`,
-    LOG_LEVEL: 'warn',
-  },
+  env: serverEnv(PORT, sampleDataDir(), NAS),
   stdio: 'inherit',
 });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function waitForServer(): Promise<void> {
-  for (let i = 0; i < 50; i++) {
-    try {
-      if ((await fetch(`${APP}/api/health`)).ok) return;
-    } catch {
-      // Not up yet.
-    }
-    await sleep(200);
-  }
-  throw new Error('Server did not start');
-}
 
 /** A stable fake info-hash for a name. */
 function fakeHash(name: string): string {
@@ -110,8 +72,9 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 try {
-  await waitForServer();
-  const browser = await launchBrowser();
+  await waitForServer(APP);
+  // A browser installed by Playwright, or the one CHROMIUM_PATH points to.
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
 
   // First start: the account, then Download Station from Settings.
   {
@@ -151,8 +114,8 @@ try {
     const add = async (name: string, categoryId: string) => {
       const response = await page.request.post(`${APP}/api/jobs`, {
         headers: { 'X-Requested-With': 'dds' },
-        data: {
-          magnets: [`magnet:?xt=urn:btih:${fakeHash(name)}&dn=${name}`],
+        multipart: {
+          magnets: `magnet:?xt=urn:btih:${fakeHash(name)}&dn=${name}`,
           provider: 'alldebrid',
           categoryId,
         },

@@ -2,8 +2,8 @@ import { LitElement, css, html, nothing } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { extractMagnets, type MagnetInfo } from '../../shared/magnet.js';
 import { parseTorrent } from '../../shared/torrent.js';
-import { PROVIDERS, type Category, type ProviderId } from '../../shared/types.js';
-import { api, ApiError } from '../api.js';
+import type { Category, ProviderId } from '../../shared/types.js';
+import { api, errorInfo } from '../api.js';
 import { breakable, formatBytes } from '../format.js';
 import { errorMessage, t } from '../i18n.js';
 import {
@@ -29,7 +29,7 @@ interface TorrentItem {
   fileCount: number;
 }
 
-const STORAGE_PROVIDER = 'dds.provider';
+/** The destination last used on this device is chosen again. */
 const STORAGE_CATEGORY = 'dds.category';
 const MAX_TORRENT_SIZE = 10 * 1024 * 1024;
 
@@ -78,7 +78,6 @@ const unrecognizedLines = (text: string) =>
 export class DdsAddSheet extends LitElement {
   @state() private text = '';
   @state() private torrents: TorrentItem[] = [];
-  @state() private provider: ProviderId | null = null;
   @state() private categoryId: string | null = null;
   @state() private busy = false;
   /** Files that are not .torrent files. */
@@ -134,32 +133,18 @@ export class DdsAddSheet extends LitElement {
 
   private get configured(): boolean {
     const settings = store.settings;
-    return !!settings?.nas && this.providers.length > 0 && (settings?.categories.length ?? 0) > 0;
+    return !!settings?.nas && !!this.provider && (settings?.categories.length ?? 0) > 0;
   }
 
-  private get providers(): ProviderId[] {
-    return store.settings?.providers.filter((p) => p.configured).map((p) => p.id) ?? [];
-  }
-
-  private get selectedProvider(): ProviderId | null {
-    const providers = this.providers;
-    const candidates = [
-      this.provider,
-      readStorage(STORAGE_PROVIDER),
-      store.settings?.defaultProvider,
-    ];
-    const found = candidates.find((id) => id && providers.includes(id as ProviderId));
-    return (found as ProviderId | undefined) ?? providers[0] ?? null;
+  /** The debrid service, once its API key is set. */
+  private get provider(): ProviderId | null {
+    return store.settings?.providers.find((provider) => provider.configured)?.id ?? null;
   }
 
   private get selectedCategory(): Category | null {
     const categories = store.settings?.categories ?? [];
-    const ids = [this.categoryId, readStorage(STORAGE_CATEGORY), store.settings?.defaultCategoryId];
-    for (const id of ids) {
-      const category = categories.find((item) => item.id === id);
-      if (category) return category;
-    }
-    return categories[0] ?? null;
+    const id = this.categoryId ?? readStorage(STORAGE_CATEGORY);
+    return categories.find((category) => category.id === id) ?? categories[0] ?? null;
   }
 
   private appendText(value: string): void {
@@ -213,17 +198,12 @@ export class DdsAddSheet extends LitElement {
   private removeMagnet(magnet: MagnetInfo): void {
     this.text = this.text
       .split(/\s+/)
-      .filter((token) => token && !token.includes(magnet.hash ?? magnet.uri))
+      .filter((token) => token && !token.includes(magnet.hash))
       .join('\n');
   }
 
   private removeTorrent(torrent: TorrentItem): void {
     this.torrents = this.torrents.filter((item) => item.id !== torrent.id);
-  }
-
-  private selectProvider(id: ProviderId): void {
-    this.provider = id;
-    writeStorage(STORAGE_PROVIDER, id);
   }
 
   private selectCategory(id: string): void {
@@ -244,7 +224,7 @@ export class DdsAddSheet extends LitElement {
   }
 
   private async submit(): Promise<void> {
-    const provider = this.selectedProvider;
+    const provider = this.provider;
     const category = this.selectedCategory;
     const { magnets } = extractMagnets(this.text);
     if (this.busy || !provider || !category || (!magnets.length && !this.torrents.length)) return;
@@ -286,7 +266,7 @@ export class DdsAddSheet extends LitElement {
       this.failures = failures;
       this.addedCount = added;
     } catch (error) {
-      this.error = errorMessage(error instanceof ApiError ? error.info.code : 'internal');
+      this.error = errorMessage(errorInfo(error).code);
     } finally {
       this.busy = false;
     }
@@ -309,7 +289,7 @@ export class DdsAddSheet extends LitElement {
     const { magnets } = extractMagnets(this.text);
     const unrecognized = unrecognizedLines(this.text);
     const count = magnets.length + this.torrents.length;
-    const provider = this.selectedProvider;
+    const provider = this.provider;
     const category = this.selectedCategory;
     const warnings = [
       ...(unrecognized ? [t('add.invalid', { count: unrecognized })] : []),
@@ -373,7 +353,7 @@ export class DdsAddSheet extends LitElement {
         </section>
 
         ${count ? this.renderItems(magnets) : nothing}
-        ${this.configured ? this.renderChoices(provider, category) : nothing}
+        ${this.configured ? this.renderChoices(category) : nothing}
       </dds-sheet>
     `;
   }
@@ -384,7 +364,7 @@ export class DdsAddSheet extends LitElement {
         <dds-icon .path=${mdiAlertCircleOutline}></dds-icon>
         <div class="notice-text">
           <p>${t('add.notConfigured')}</p>
-          <a href="#/settings" @click=${() => this.sheet.close()}>${t('setup.open')}</a>
+          <a href="#/settings" @click=${() => this.sheet.close()}>${t('common.openSettings')}</a>
         </div>
       </div>
     </div>`;
@@ -422,7 +402,7 @@ export class DdsAddSheet extends LitElement {
           this.renderItem(
             mdiLinkVariant,
             magnet.name ?? t('add.unnamed'),
-            magnet.hash ? html`<span class="mono">${shortHash(magnet.hash)}</span>` : null,
+            html`<span class="mono">${shortHash(magnet.hash)}</span>`,
             this.failures.get(magnet.uri),
             () => this.removeMagnet(magnet),
           ),
@@ -443,9 +423,8 @@ export class DdsAddSheet extends LitElement {
     </section>`;
   }
 
-  private renderChoices(provider: ProviderId | null, category: Category | null) {
+  private renderChoices(category: Category | null) {
     const categories = store.settings?.categories ?? [];
-    const providers = this.providers;
     return html`
       <section class="section">
         <div class="section-header">${t('add.destination')}</div>
@@ -470,25 +449,6 @@ export class DdsAddSheet extends LitElement {
           })}
         </div>
       </section>
-
-      ${
-        providers.length > 1
-          ? html`<section class="section">
-              <div class="section-header">${t('add.service')}</div>
-              <div class="segmented" role="group" aria-label=${t('add.service')}>
-                ${providers.map(
-                  (id) =>
-                    html`<button
-                      aria-pressed=${id === provider}
-                      @click=${() => this.selectProvider(id)}
-                    >
-                      ${PROVIDERS[id].name}
-                    </button>`,
-                )}
-              </div>
-            </section>`
-          : nothing
-      }
     `;
   }
 
@@ -590,22 +550,6 @@ export class DdsAddSheet extends LitElement {
 
       .remove dds-icon {
         --icon-size: 18px;
-      }
-
-      .notice.neutral {
-        color: var(--text-secondary);
-        background: var(--bg-elevated);
-      }
-
-      .notice-text {
-        display: grid;
-        gap: 4px;
-        min-width: 0;
-      }
-
-      .notice-text a {
-        justify-self: start;
-        font-weight: 600;
       }
     `,
   ];

@@ -1,10 +1,8 @@
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { createHash } from 'node:crypto';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { HTTPException } from 'hono/http-exception';
 import { secureHeaders } from 'hono/secure-headers';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -17,15 +15,13 @@ import {
   type ErrorCode,
   type FolderListing,
   type NasSaveResult,
-  type NasUpdate,
   type Outcome,
-  type ProviderId,
   type ProviderTestResult,
   type SessionInfo,
   type SessionStatus,
 } from '../shared/types.js';
 import { parseNewPassword, parseUsername, type Account } from './account.js';
-import type { DebridProvider } from './debrid/types.js';
+import { configuredProvider, createProvider } from './debrid/index.js';
 import type { Env } from './env.js';
 import { AppError, HttpError, toErrorInfo } from './errors.js';
 import type { EventHub } from './events.js';
@@ -45,8 +41,6 @@ export interface AppDeps {
   nas: NasConnection;
   jobs: JobManager;
   events: EventHub;
-  provider: (id: ProviderId) => DebridProvider;
-  providerWithKey: (id: ProviderId, apiKey: string) => DebridProvider;
   /** Failed sign-ins and password checks, per client IP. */
   loginLimiter: RateLimiter;
   /**
@@ -62,34 +56,19 @@ type Ctx = Context<{ Variables: Vars }>;
 const SESSION_COOKIE = 'dds_session';
 const MAX_TORRENT_SIZE = 10 * 1024 * 1024;
 
+/** Status of the errors the routes let through (the others are HttpErrors, or 502). */
 const STATUS_BY_CODE: Partial<Record<ErrorCode, ContentfulStatusCode>> = {
-  unauthorized: 401,
-  invalid_credentials: 401,
-  forbidden: 403,
-  no_permission: 403,
-  file_station_denied: 403,
-  too_many_attempts: 429,
-  provider_rate_limited: 429,
   not_found: 404,
-  invalid_request: 400,
-  weak_password: 400,
-  magnet_invalid: 400,
-  torrent_invalid: 400,
-  category_missing: 400,
   provider_not_configured: 400,
-  nas_not_configured: 503,
   nas_session_expired: 503,
   download_station_unavailable: 503,
-  nas_unreachable: 502,
-  nas_certificate: 502,
-  provider_unreachable: 502,
 };
 
 /** DSM logins that DSM counts as failed (toward blocking the IP). */
 const FAILED_NAS_LOGINS: ReadonlySet<ErrorCode> = new Set(['invalid_credentials', 'otp_invalid']);
 
 /** Body of a new Download Station connection; throws when a field is missing. */
-function parseNasUpdate(value: unknown): NasUpdate {
+function parseNasUpdate(value: unknown) {
   const body = (value ?? {}) as Record<string, unknown>;
   const url = typeof body.url === 'string' ? normalizeNasUrl(body.url) : null;
   const account = typeof body.account === 'string' ? body.account.trim() : '';
@@ -134,7 +113,6 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
   );
 
   app.onError((error, c) => {
-    if (error instanceof HTTPException) return error.getResponse();
     if (error instanceof HttpError) return c.json({ error: error.toInfo() }, error.status);
     if (error instanceof NasLoginError) {
       // What DSM said shows in Settings → Download Station.
@@ -178,7 +156,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
 
   /** Signs this browser in. */
   const startSession = (c: Ctx): void => {
-    setSessionCookie(c, sessions.create().token);
+    setSessionCookie(c, sessions.create());
   };
 
   /** Also sent again each time the app opens: the browser keeps it as long as the session. */
@@ -193,22 +171,6 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
   };
 
   const body = async (c: Ctx) => (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-
-  /**
-   * Tries a new Download Station connection. DSM refusing it is an expected outcome, not an
-   * error; failed logins are counted, as DSM counts them.
-   */
-  const configureNas = async (update: NasUpdate): Promise<Outcome> => {
-    if (deps.nasLoginLimiter.isBlocked('*')) throw new HttpError(429, 'too_many_attempts');
-    try {
-      await nas.configure(update);
-      return { ok: true };
-    } catch (error) {
-      if (!(error instanceof AppError)) throw error;
-      if (FAILED_NAS_LOGINS.has(error.code)) deps.nasLoginLimiter.fail('*');
-      return { ok: false, error: error.toInfo() };
-    }
-  };
 
   let settingUp = false;
 
@@ -240,7 +202,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     if (!signIn) return next();
     const token = getCookie(c, SESSION_COOKIE);
     // No account (first start, or reset): no session counts.
-    if (!token || !account.exists || !sessions.get(token)) {
+    if (!token || !account.exists || !sessions.isValid(token)) {
       throw new HttpError(401, 'unauthorized');
     }
     c.set('token', token);
@@ -257,7 +219,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     }
     const token = getCookie(c, SESSION_COOKIE);
     if (!token) return c.json({ session: null } satisfies SessionStatus);
-    if (!sessions.get(token)) {
+    if (!sessions.isValid(token)) {
       // A cookie left by a session that is over: said once, then forgotten.
       deleteCookie(c, SESSION_COOKIE, { path: '/' });
       return c.json({ session: null, reason: 'unauthorized' } satisfies SessionStatus);
@@ -347,9 +309,18 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     }
   });
 
+  // A new connection is tried before it is saved. DSM refusing it is an expected outcome, not
+  // an error; failed logins are counted, as DSM counts them.
   api.put('/nas', requireSession, async (c) => {
-    const outcome = await configureNas(parseNasUpdate(await body(c)));
-    if (!outcome.ok) return c.json(outcome satisfies NasSaveResult);
+    const update = parseNasUpdate(await body(c));
+    if (deps.nasLoginLimiter.isBlocked('*')) throw new HttpError(429, 'too_many_attempts');
+    try {
+      await nas.configure(update);
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      if (FAILED_NAS_LOGINS.has(error.code)) deps.nasLoginLimiter.fail('*');
+      return c.json({ ok: false, error: error.toInfo() } satisfies NasSaveResult);
+    }
     // Downloads waiting for Download Station go on.
     jobs.resume();
     return c.json({ ok: true, settings: settings.toPublic() } satisfies NasSaveResult);
@@ -358,12 +329,14 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
   api.post('/providers/:id/test', requireSession, async (c) => {
     const id = c.req.param('id');
     if (!isProviderId(id)) throw new HttpError(404, 'not_found');
-    const body = (await c.req.json().catch(() => ({}))) as { apiKey?: unknown };
-    const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+    const input = await body(c);
+    const apiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
     // A refused key (or a service out of reach) is what the test found, not a failed request.
     let result: ProviderTestResult;
     try {
-      const provider = apiKey ? deps.providerWithKey(id, apiKey) : deps.provider(id);
+      const provider = apiKey
+        ? createProvider(id, apiKey, env)
+        : configuredProvider(id, settings, env);
       result = { ok: true, account: await provider.account() };
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -389,18 +362,14 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
   });
 
   api.post('/folders', requireSession, async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { path?: unknown; name?: unknown };
-    const parent = typeof body.path === 'string' ? normalizeDestination(body.path) : null;
-    const name = typeof body.name === 'string' ? sanitizeSegment(body.name) : '';
+    const input = await body(c);
+    const parent = typeof input.path === 'string' ? normalizeDestination(input.path) : null;
+    const name = typeof input.name === 'string' ? sanitizeSegment(input.name) : '';
     if (!parent || !name) throw new HttpError(400, 'invalid_request');
     const path = joinPath(parent, name);
     await nas.run((client, sid) => client.createFolders(sid, [path]));
     return c.json({ name, path });
   });
-
-  api.get('/jobs', requireSession, (c) =>
-    c.json({ jobs: jobs.list().map((job) => jobs.toView(job)) }),
-  );
 
   api.post(
     '/jobs',
@@ -412,48 +381,26 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
       },
     }),
     async (c) => {
-      let providerId: unknown;
-      let categoryId: unknown;
-      let magnetInputs: string[];
-      let torrentFiles: File[] = [];
-
-      if (c.req.header('content-type')?.includes('multipart/form-data')) {
-        const form = await c.req.parseBody({ all: true });
-        const values = (key: string) => {
-          const value = form[key];
-          return value === undefined ? [] : Array.isArray(value) ? value : [value];
-        };
-        providerId = form.provider;
-        categoryId = form.categoryId;
-        magnetInputs = values('magnets').filter((v): v is string => typeof v === 'string');
-        torrentFiles = values('torrents').filter((v): v is File => v instanceof File);
-      } else {
-        const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-        providerId = body.provider;
-        categoryId = body.categoryId;
-        magnetInputs = Array.isArray(body.magnets)
-          ? body.magnets.filter((v): v is string => typeof v === 'string')
-          : [];
-      }
-
+      const form = await c.req.parseBody({ all: true });
+      const values = (key: string) => {
+        const value = form[key];
+        return value === undefined ? [] : Array.isArray(value) ? value : [value];
+      };
+      const providerId = form.provider;
       if (!isProviderId(providerId)) throw new HttpError(400, 'invalid_request', 'provider');
-      const provider = deps.provider(providerId);
-      const category = typeof categoryId === 'string' ? settings.category(categoryId) : null;
+      const provider = configuredProvider(providerId, settings, env);
+      const category =
+        typeof form.categoryId === 'string' ? settings.category(form.categoryId) : null;
       if (!category) throw new HttpError(400, 'category_missing');
+      const magnetInputs = values('magnets').filter((v): v is string => typeof v === 'string');
+      const torrentFiles = values('torrents').filter((v): v is File => v instanceof File);
       if (!magnetInputs.length && !torrentFiles.length) {
         throw new HttpError(400, 'invalid_request', 'Nothing to add');
       }
 
       const results: AddJobResult[] = [];
       const addJob = (debridId: string, name: string) =>
-        jobs.toView(
-          jobs.create({
-            provider: providerId as ProviderId,
-            debridId,
-            name,
-            category,
-          }),
-        );
+        jobs.toView(jobs.create({ provider: providerId, debridId, name, category }));
 
       for (const input of magnetInputs) {
         const { magnets, invalid } = extractMagnets(input);
@@ -462,8 +409,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
         }
         for (const magnet of magnets) {
           try {
-            const added = await provider.addMagnet(magnet.uri, magnet.hash);
-            const name = magnet.name ?? added.name ?? magnet.hash ?? 'magnet';
+            const added = await provider.addMagnet(magnet.uri);
+            const name = magnet.name ?? added.name ?? magnet.hash;
             results.push({ ok: true, job: addJob(added.id, name) });
           } catch (error) {
             results.push({ ok: false, input: magnet.uri, error: toErrorInfo(error) });
@@ -476,18 +423,13 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
           if (file.size > MAX_TORRENT_SIZE) throw new AppError('torrent_invalid', 'File too large');
           const data = new Uint8Array(await file.arrayBuffer());
           let name: string;
-          let hash: string;
           try {
-            const meta = parseTorrent(data);
-            name = meta.name;
-            hash = createHash('sha1')
-              .update(data.subarray(...meta.infoRange))
-              .digest('hex');
+            name = parseTorrent(data).name;
           } catch (error) {
             if (error instanceof TorrentParseError) throw new AppError('torrent_invalid');
             throw error;
           }
-          const added = await provider.addTorrent(data, file.name || `${name}.torrent`, hash);
+          const added = await provider.addTorrent(data, file.name || `${name}.torrent`);
           results.push({ ok: true, job: addJob(added.id, added.name ?? name) });
         } catch (error) {
           results.push({ ok: false, input: file.name, error: toErrorInfo(error) });
@@ -556,16 +498,6 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
           'Cache-Control',
           path.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
         );
-      },
-    }),
-  );
-  app.get(
-    '*',
-    serveStatic({
-      root: env.webRoot,
-      path: 'index.html',
-      onFound: (_path, c) => {
-        c.header('Cache-Control', 'no-cache');
       },
     }),
   );

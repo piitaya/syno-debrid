@@ -30,18 +30,10 @@ const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
-/** Magnet link passed in the URL (`?magnet=`), e.g. by the browser's magnet handler. */
+/** Magnet link passed in the URL (`?magnet=`) by the browser's magnet handler. */
 function takeUrlMagnet(): string | null {
-  const params = new URLSearchParams(location.search);
-  const magnet = params.get('magnet');
-  if (!magnet) return null;
-  params.delete('magnet');
-  const search = params.toString();
-  history.replaceState(
-    null,
-    '',
-    `${location.pathname}${search ? `?${search}` : ''}${location.hash}`,
-  );
+  const magnet = new URLSearchParams(location.search).get('magnet');
+  if (magnet) history.replaceState(null, '', location.pathname);
   return magnet;
 }
 
@@ -81,11 +73,6 @@ export class DdsApp extends LitElement {
     window.removeEventListener('drop', this.onDrop);
     window.removeEventListener('paste', this.onPaste);
     this.removeEventListener('dds-open-add', this.onOpenAdd);
-  }
-
-  override willUpdate(): void {
-    // Signed out: the next session starts from the page in the address (reset on sign-out).
-    if (!store.session) this.route = routeFromHash();
   }
 
   override updated(): void {
@@ -161,7 +148,7 @@ export class DdsApp extends LitElement {
     }
     if (!store.session) {
       return html`${
-        store.setupRequired
+        store.signedOutReason === 'setup_required'
           ? html`<dds-setup-page></dds-setup-page>`
           : html`<dds-login-page></dds-login-page>`
       }${this.renderToasts()}`;
@@ -273,19 +260,13 @@ export class DdsApp extends LitElement {
 
       /* Only shows when loading takes a while: most of the time the app is there at once. */
       .splash dds-logo {
-        animation: appear 0.3s ease 0.5s both;
+        animation: fade-in 0.3s ease 0.5s both;
       }
 
       .splash-status {
         font-size: 13px;
         color: var(--text-secondary);
-        animation: appear 0.3s ease both;
-      }
-
-      @keyframes appear {
-        from {
-          opacity: 0;
-        }
+        animation: fade-in 0.3s ease both;
       }
 
       .bar {

@@ -1,18 +1,14 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { live } from 'lit/directives/live.js';
-import type { ErrorInfo } from '../../shared/types.js';
-import { api } from '../api.js';
-import { t } from '../i18n.js';
-import { mdiAlertCircleOutline, mdiCheckCircleOutline } from '../icons.js';
-import { describeNasError, guessNasUrl, isHttps } from '../nas.js';
+import type { ErrorCode, ErrorInfo } from '../../shared/types.js';
+import { api, errorInfo } from '../api.js';
+import { errorMessage, t } from '../i18n.js';
 import { store } from '../store.js';
-import { inlineInputStyles } from './folder-picker.js';
-import './icon.js';
-import { errorInfo } from './provider-sheet.js';
+import { checkRowStyles, renderCheckRow } from './check-row.js';
 import type { DdsSheet } from './sheet.js';
 import './sheet.js';
-import { sharedStyles } from './styles.js';
+import { inlineInputStyles, sharedStyles } from './styles.js';
 
 /** State of the connection to Download Station. */
 export type NasCheck =
@@ -26,6 +22,32 @@ export async function checkNas(): Promise<NasCheck> {
   } catch (error) {
     return { status: 'error', error: errorInfo(error) };
   }
+}
+
+/** Errors where what the NAS said helps: a wrong address, a certificate… */
+const TECHNICAL_ERRORS: ReadonlySet<ErrorCode> = new Set([
+  'nas_unreachable',
+  'nas_certificate',
+  'nas_error',
+]);
+
+/** An error of a DSM login, with the NAS's own message when it helps. */
+function describeNasError(error: ErrorInfo): { text: string; detail: string } {
+  const detail =
+    TECHNICAL_ERRORS.has(error.code) && error.message
+      ? t('common.detail', { message: error.message })
+      : '';
+  return { text: errorMessage(error.code), detail };
+}
+
+const isHttps = (url: string): boolean => /^\s*https:/i.test(url);
+
+/** The NAS usually is where the app runs: its address, on DSM's port. */
+function guessNasUrl(): string {
+  const host = location.hostname;
+  const local =
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.endsWith('.local') || !host.includes('.');
+  return local && host !== 'localhost' ? `http://${host}:5000` : '';
 }
 
 type Field = 'url' | 'account' | 'password' | 'otp';
@@ -142,12 +164,6 @@ export class DdsNasSheet extends LitElement {
     this.checkRun++;
   }
 
-  private onKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || event.isComposing) return;
-    event.preventDefault();
-    void this.save();
-  }
-
   override render() {
     const configured = !!store.settings?.nas;
     return html`
@@ -203,7 +219,7 @@ export class DdsNasSheet extends LitElement {
     placeholder: string,
     options: { type?: string; inputmode?: string; autocomplete?: string } = {},
   ) {
-    return html`<div class="row field">
+    return html`<div class="row input-row">
       <label for=${field}>${label}</label>
       <input
         id=${field}
@@ -217,7 +233,6 @@ export class DdsNasSheet extends LitElement {
         spellcheck="false"
         .value=${live(this.values[field])}
         @input=${(event: Event) => this.set(field, (event.target as HTMLInputElement).value)}
-        @keydown=${this.onKeyDown}
       />
     </div>`;
   }
@@ -246,94 +261,35 @@ export class DdsNasSheet extends LitElement {
   }
 
   private renderCheck(check: NasCheck) {
-    if (check.status === 'checking') {
-      return html`<div class="row status checking" role="status">
-        <span class="status-icon"><span class="spinner"></span></span>
-        <span class="row-main"
-          ><span class="row-title secondary">${t('provider.checking')}</span></span
-        >
-      </div>`;
-    }
-    const nas = store.settings?.nas;
+    if (check.status === 'checking') return renderCheckRow(check);
     if (check.status === 'ok') {
-      return html`<div class="row status" role="status">
-        <dds-icon class="status-icon success-text" .path=${mdiCheckCircleOutline}></dds-icon>
-        <span class="row-main">
-          <span class="row-title wrap">${t('provider.connected')}</span>
-          ${nas ? html`<span class="row-subtitle wrap">${nas.account} · ${nas.url}</span>` : nothing}
-        </span>
-      </div>`;
+      const nas = store.settings?.nas;
+      return renderCheckRow({
+        status: 'ok',
+        title: t('check.connected'),
+        subtitle: nas ? `${nas.account} · ${nas.url}` : undefined,
+      });
     }
     const { text, detail } = describeNasError(check.error);
-    return html`<div class="row status ${detail ? '' : 'single'}" role="alert">
-      <dds-icon class="status-icon danger-text" .path=${mdiAlertCircleOutline}></dds-icon>
-      <span class="row-main">
-        <span class="row-title danger-text">${text}</span>
-        ${detail ? html`<span class="row-subtitle wrap">${detail}</span>` : nothing}
-      </span>
-    </div>`;
+    return renderCheckRow({ status: 'error', title: text, detail });
   }
 
   static override styles = [
     sharedStyles,
     inlineInputStyles,
+    checkRowStyles,
     css`
-      .row:focus-visible {
-        box-shadow: inset var(--focus-ring);
-      }
-
-      .field {
-        padding-top: 4px;
-        padding-bottom: 4px;
-      }
-
       /* Same size as the typed text, so that both sit on one line. */
-      .field label {
+      .input-row label {
         flex: none;
         width: 7.5em;
         font-size: 16px;
       }
 
       @media (pointer: fine) {
-        .field label {
+        .input-row label {
           font-size: 15px;
         }
-      }
-
-      .status {
-        align-items: flex-start;
-      }
-
-      .status-icon {
-        --icon-size: 22px;
-        display: grid;
-        flex: none;
-        place-items: center;
-        width: 22px;
-        height: 22px;
-        margin-top: -1px;
-      }
-
-      .status-icon .spinner {
-        color: var(--text-secondary);
-      }
-
-      .status .row-main {
-        align-self: center;
-      }
-
-      .status.checking,
-      .status.single {
-        align-items: center;
-      }
-
-      .status.checking .status-icon,
-      .status.single .status-icon {
-        margin-top: 0;
-      }
-
-      .status .row-subtitle {
-        overflow-wrap: anywhere;
       }
     `,
   ];

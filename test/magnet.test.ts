@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractMagnets, isInfoHash, magnetFromHash, parseMagnet } from '../src/shared/magnet.js';
+import { extractMagnets, parseMagnet } from '../src/shared/magnet.js';
 
 const HASH = 'c9e15763f722f23e98a29decdfae341b98d53056';
 
@@ -26,14 +26,6 @@ describe('parseMagnet', () => {
   });
 });
 
-describe('info-hashes', () => {
-  it('recognizes bare hashes', () => {
-    expect(isInfoHash(HASH)).toBe(true);
-    expect(isInfoHash('not-a-hash')).toBe(false);
-    expect(magnetFromHash(HASH.toUpperCase())).toBe(`magnet:?xt=urn:btih:${HASH}`);
-  });
-});
-
 describe('extractMagnets', () => {
   it('splits text, dedupes and reports invalid tokens', () => {
     const text = [
@@ -45,6 +37,7 @@ describe('extractMagnets', () => {
     const { magnets, invalid } = extractMagnets(text);
     expect(magnets.map((m) => m.name)).toEqual(['One', null]);
     expect(magnets[1]?.uri).toBe(`magnet:?xt=urn:btih:${'b'.repeat(40)}`);
+    expect(extractMagnets(HASH.toUpperCase()).magnets[0]?.uri).toBe(`magnet:?xt=urn:btih:${HASH}`);
     expect(invalid).toEqual(['hello']);
   });
 });

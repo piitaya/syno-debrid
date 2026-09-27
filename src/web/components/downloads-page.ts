@@ -2,7 +2,7 @@ import { LitElement, css, html, nothing } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
 import type { JobView } from '../../shared/types.js';
-import { api, ApiError } from '../api.js';
+import { api, errorInfo } from '../api.js';
 import { errorMessage, t } from '../i18n.js';
 import { mdiCheckCircle, mdiChevronRight, mdiCircleOutline, mdiTrayArrowDown } from '../icons.js';
 import { store, StoreController } from '../store.js';
@@ -16,7 +16,7 @@ const isFailed = (job: JobView) => job.status === 'error';
 const isFinished = (job: JobView) => job.status === 'completed' || job.status === 'cancelled';
 const finishedAt = (job: JobView) => job.finishedAt ?? job.updatedAt;
 
-/** Home screen: setup checklist, failed, running and finished downloads. */
+/** Home screen: what is left to set up, failed, running and finished downloads. */
 @customElement('dds-downloads-page')
 export class DdsDownloadsPage extends LitElement {
   @state() private clearing = false;
@@ -50,7 +50,7 @@ export class DdsDownloadsPage extends LitElement {
       await api.clearJobs();
       store.removeJobs(ids);
     } catch (error) {
-      store.toast(errorMessage(error instanceof ApiError ? error.info.code : 'internal'), 'error');
+      store.toast(errorMessage(errorInfo(error).code), 'error');
     } finally {
       this.clearing = false;
     }
@@ -68,7 +68,7 @@ export class DdsDownloadsPage extends LitElement {
     const configured = hasNas && hasProvider && hasDestination;
 
     return html`
-      ${configured ? nothing : this.renderSetup(hasNas, hasProvider, hasDestination)}
+      ${configured ? nothing : this.renderChecklist(hasNas, hasProvider, hasDestination)}
       ${store.jobsLoaded ? this.renderJobs(configured) : this.renderLoading()}
       <dds-download-sheet></dds-download-sheet>
     `;
@@ -97,7 +97,7 @@ export class DdsDownloadsPage extends LitElement {
     `;
   }
 
-  private renderSetup(hasNas: boolean, hasProvider: boolean, hasDestination: boolean) {
+  private renderChecklist(hasNas: boolean, hasProvider: boolean, hasDestination: boolean) {
     const step = (done: boolean, title: string) => {
       const icon = html`<span
         class="step-icon"
@@ -108,7 +108,7 @@ export class DdsDownloadsPage extends LitElement {
       </span>`;
       // What is left to do opens the settings.
       if (done) {
-        return html`<div class="row step ${done ? 'done' : ''}">
+        return html`<div class="row step done">
           ${icon}<span class="row-title">${title}</span>
         </div>`;
       }
@@ -120,12 +120,12 @@ export class DdsDownloadsPage extends LitElement {
     };
     return html`
       <section class="section">
-        <h2 class="section-header">${t('setup.title')}</h2>
+        <h2 class="section-header">${t('checklist.title')}</h2>
         <div class="group with-icons">
-          ${step(hasNas, t('setup.nas'))} ${step(hasProvider, t('setup.provider'))}
-          ${step(hasDestination, t('setup.destination'))}
+          ${step(hasNas, t('checklist.nas'))} ${step(hasProvider, t('checklist.provider'))}
+          ${step(hasDestination, t('checklist.destination'))}
         </div>
-        <p class="section-footer">${t('setup.next')}</p>
+        <p class="section-footer">${t('checklist.next')}</p>
       </section>
     `;
   }
@@ -173,15 +173,6 @@ export class DdsDownloadsPage extends LitElement {
   static override styles = [
     sharedStyles,
     css`
-      .section-header h2 {
-        font-size: inherit;
-        font-weight: inherit;
-      }
-
-      .count {
-        font-weight: 400;
-      }
-
       /* Hairlines between rows, aligned with the text column (16 + 28 icon + 12). */
       .rows > dds-download-row {
         position: relative;
@@ -222,21 +213,13 @@ export class DdsDownloadsPage extends LitElement {
         color: var(--text-secondary);
       }
 
-      a.step {
-        color: inherit;
-      }
-
-      a.step:focus-visible {
-        box-shadow: inset var(--focus-ring);
-      }
-
       /* Only shows when the list takes a while to arrive. */
       .loading {
         display: grid;
         place-items: center;
         min-height: calc(100dvh - 240px);
         color: var(--text-tertiary);
-        animation: appear 0.3s ease 0.4s both;
+        animation: fade-in 0.3s ease 0.4s both;
       }
 
       .empty {
@@ -247,13 +230,7 @@ export class DdsDownloadsPage extends LitElement {
         min-height: calc(100dvh - 240px);
         padding: 24px 16px;
         text-align: center;
-        animation: appear 0.3s ease both;
-      }
-
-      @keyframes appear {
-        from {
-          opacity: 0;
-        }
+        animation: fade-in 0.3s ease both;
       }
 
       .empty-icon {
