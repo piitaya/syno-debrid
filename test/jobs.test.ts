@@ -243,7 +243,33 @@ describe('JobManager', () => {
       category,
     });
     done.status = 'completed';
-    jobs.clearFinished();
+    await jobs.clearFinished();
     expect(jobs.list()).toEqual([failed]);
+  });
+
+  it('removes cleared jobs from Download Station, but not running tasks', async () => {
+    const { jobs, nas, add } = setup();
+    await connect(nas);
+    const done = await add();
+    await run(jobs, 2);
+    clock += 10_000;
+    await run(jobs);
+    expect(done.status).toBe('completed');
+    const doneTasks = done.files.map((file) => file.taskId!);
+
+    // Failed while Download Station still downloads one of its files.
+    const failed = await add();
+    await run(jobs, 2);
+    const [running, broken] = failed.files.map((file) => file.taskId!);
+    dsm.tasks.get(broken!)!.fail = 'broken_link';
+    failed.status = 'error';
+
+    await jobs.clearFinished();
+    expect(jobs.list()).toEqual([failed]);
+    expect(doneTasks.every((id) => dsm.tasks.get(id)?.deleted)).toBe(true);
+
+    await jobs.remove(failed.id, false);
+    expect(dsm.tasks.get(broken!)?.deleted).toBe(true);
+    expect(dsm.tasks.get(running!)?.deleted).toBe(false);
   });
 });

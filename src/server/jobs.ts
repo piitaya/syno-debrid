@@ -202,14 +202,20 @@ export class JobManager {
     return job;
   }
 
-  /** Removes a job. With `cancel`, also stops it on the debrid service and Download Station. */
+  /**
+   * Removes a job, and its finished tasks from Download Station. With `cancel`, also stops it
+   * on the debrid service and Download Station.
+   */
   async remove(id: string, cancel: boolean): Promise<void> {
     const job = this.get(id);
     this.deps.file.data.jobs = this.jobs.filter((item) => item !== job);
     this.deps.file.save();
     this.deps.events.emit('job-removed', { id });
 
-    if (!cancel) return;
+    if (!cancel) {
+      await this.clearTasks([job]);
+      return;
+    }
     const running = job.files
       .filter((file) => file.taskId && file.status !== 'completed')
       .map((file) => file.taskId!);
@@ -223,8 +229,11 @@ export class JobManager {
     await this.deleteFromDebrid(job);
   }
 
-  /** Removes completed and cancelled jobs (failed ones stay, to be retried or removed). */
-  clearFinished(): void {
+  /**
+   * Removes completed and cancelled jobs (failed ones stay, to be retried or removed), and
+   * their tasks from Download Station.
+   */
+  async clearFinished(): Promise<void> {
     const removed = this.jobs.filter(
       (job) => job.status === 'completed' || job.status === 'cancelled',
     );
@@ -232,6 +241,30 @@ export class JobManager {
     this.deps.file.data.jobs = this.jobs.filter((job) => !removed.includes(job));
     this.deps.file.save();
     for (const job of removed) this.deps.events.emit('job-removed', { id: job.id });
+    await this.clearTasks(removed);
+  }
+
+  /**
+   * Removes the jobs' finished or failed tasks from Download Station's list. The downloaded
+   * files stay on the NAS, and tasks still running are left alone.
+   */
+  private async clearTasks(jobs: Job[]): Promise<void> {
+    const ids = new Set(jobs.flatMap((job) => job.files.map((file) => file.taskId)));
+    ids.delete(null);
+    if (!ids.size) return;
+    try {
+      await this.deps.nas.run(async (client, sid) => {
+        // Only the tasks still there: they may have been removed by hand or by auto-clean.
+        const done = (await client.listTasks(sid))
+          .filter(
+            (task) => ids.has(task.id) && ['finished', 'seeding', 'error'].includes(task.status),
+          )
+          .map((task) => task.id);
+        await client.deleteTasks(sid, done);
+      });
+    } catch (error) {
+      log.warn(`Could not remove Download Station tasks`, toErrorInfo(error));
+    }
   }
 
   /** Runs the waiting jobs now, e.g. once Download Station is set up again. */
