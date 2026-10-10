@@ -63,13 +63,16 @@ export interface AppSettings {
   categories: Category[];
   /** Put multi-file torrents in their own folder (like a BitTorrent client does). */
   createSubfolder: boolean;
-  /** Remove the torrent from the debrid account once Download Station has finished. */
+  /** Remove the finished tasks from Download Station when downloads are cleared. */
+  clearDownloadStation: boolean;
+  /** Remove the torrent from the debrid account when downloads are cleared. */
   deleteFromDebrid: boolean;
 }
 
 export interface SettingsUpdate {
   categories?: Category[];
   createSubfolder?: boolean;
+  clearDownloadStation?: boolean;
   deleteFromDebrid?: boolean;
   /** New API keys; `null` removes the stored key. */
   apiKeys?: Partial<Record<ProviderId, string | null>>;

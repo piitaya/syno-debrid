@@ -44,6 +44,7 @@ const jobs = new JobManager({
   provider: (id) => configuredProvider(id, settings, env),
   options: () => ({
     createSubfolder: settings.createSubfolder,
+    clearDownloadStation: settings.clearDownloadStation,
     deleteFromDebrid: settings.deleteFromDebrid,
   }),
 });

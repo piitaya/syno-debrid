@@ -25,7 +25,9 @@ beforeAll(async () => {
 });
 afterAll(() => server.close());
 
-function setup(options = { createSubfolder: true, deleteFromDebrid: false }) {
+function setup(
+  options = { createSubfolder: true, clearDownloadStation: true, deleteFromDebrid: false },
+) {
   const dir = mkdtempSync(join(tmpdir(), 'dds-'));
   const settings = new Settings(
     new JsonFile<StoredSettings>(join(dir, 'settings.json'), defaultSettings),
@@ -172,7 +174,11 @@ describe('JobManager', () => {
   });
 
   it('retries failed downloads with fresh links', async () => {
-    const { jobs, nas, provider, add } = setup({ createSubfolder: true, deleteFromDebrid: true });
+    const { jobs, nas, provider, add } = setup({
+      createSubfolder: true,
+      clearDownloadStation: true,
+      deleteFromDebrid: true,
+    });
     await connect(nas);
     const job = await add();
     await run(jobs);
@@ -275,5 +281,23 @@ describe('JobManager', () => {
     await jobs.remove(failed.id, false);
     expect(dsm.tasks.get(broken!)?.deleted).toBe(true);
     expect(dsm.tasks.get(running!)?.deleted).toBe(false);
+  });
+
+  it('leaves Download Station alone when its cleanup is off', async () => {
+    const { jobs, nas, add } = setup({
+      createSubfolder: true,
+      clearDownloadStation: false,
+      deleteFromDebrid: false,
+    });
+    await connect(nas);
+    const job = await add();
+    await run(jobs, 2);
+    clock += 10_000;
+    await run(jobs);
+    expect(job.status).toBe('completed');
+
+    await jobs.clearFinished();
+    expect(jobs.list()).toEqual([]);
+    expect(job.files.every((file) => dsm.tasks.get(file.taskId!)?.deleted === false)).toBe(true);
   });
 });

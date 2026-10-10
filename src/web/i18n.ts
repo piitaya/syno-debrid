@@ -139,6 +139,9 @@ const fr = {
   'settings.downloading': 'Téléchargements',
   'settings.subfolder': 'Un dossier par torrent',
   'settings.subfolderHint': 'Les torrents de plusieurs fichiers ont leur propre dossier.',
+  'settings.clearNas': 'Nettoyer Download Station',
+  'settings.clearNasHint':
+    'Retire la tâche de Download Station quand vous effacez le téléchargement. Les fichiers restent sur le NAS.',
   'settings.cleanup': 'Nettoyer le service debrid',
   'settings.cleanupHint': 'Retire le torrent du service quand vous effacez le téléchargement.',
   'settings.account': 'Compte',
@@ -411,6 +414,9 @@ const en: Record<MessageKey, string> = {
   'settings.downloading': 'Downloads',
   'settings.subfolder': 'One folder per torrent',
   'settings.subfolderHint': 'Multi-file torrents are placed in their own folder.',
+  'settings.clearNas': 'Clean up Download Station',
+  'settings.clearNasHint':
+    'Removes the task from Download Station when you clear the download. Files stay on the NAS.',
   'settings.cleanup': 'Clean up the debrid service',
   'settings.cleanupHint': 'Removes the torrent from the service when you clear the download.',
   'settings.account': 'Account',

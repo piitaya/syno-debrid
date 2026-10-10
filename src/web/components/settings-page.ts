@@ -38,7 +38,7 @@ import { sharedStyles } from './styles.js';
 
 /** Settings changed in place (switches, order). */
 type InlinePatch = Partial<
-  Pick<AppSettings, 'categories' | 'createSubfolder' | 'deleteFromDebrid'>
+  Pick<AppSettings, 'categories' | 'createSubfolder' | 'clearDownloadStation' | 'deleteFromDebrid'>
 >;
 
 /** "AllDebrid" → "AD". */
@@ -339,6 +339,20 @@ export class DdsSettingsPage extends LitElement {
             .checked=${live(settings.createSubfolder)}
             @change=${(event: Event) =>
               this.save({ createSubfolder: (event.target as HTMLInputElement).checked })}
+          />
+        </label>
+        <label class="row">
+          <span class="row-main">
+            <span class="row-title">${t('settings.clearNas')}</span>
+            <span class="row-subtitle">${t('settings.clearNasHint')}</span>
+          </span>
+          <input
+            type="checkbox"
+            class="switch"
+            role="switch"
+            .checked=${live(settings.clearDownloadStation)}
+            @change=${(event: Event) =>
+              this.save({ clearDownloadStation: (event.target as HTMLInputElement).checked })}
           />
         </label>
         <label class="row">

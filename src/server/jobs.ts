@@ -76,7 +76,11 @@ export interface JobDeps {
   nas: NasConnection;
   events: EventHub;
   provider: (id: ProviderId) => DebridProvider;
-  options: () => { createSubfolder: boolean; deleteFromDebrid: boolean };
+  options: () => {
+    createSubfolder: boolean;
+    clearDownloadStation: boolean;
+    deleteFromDebrid: boolean;
+  };
 }
 
 const TICK_MS = 1000;
@@ -245,12 +249,13 @@ export class JobManager {
   }
 
   /**
-   * Cleans up after jobs taken off the list: their tasks leave Download Station, and their
-   * torrents the debrid service when the option is on. Never throws.
+   * Cleans up after jobs taken off the list, as the options say: their tasks leave Download
+   * Station, and their torrents the debrid service. Never throws.
    */
   private async dispose(jobs: Job[]): Promise<void> {
-    await this.clearTasks(jobs);
-    if (!this.deps.options().deleteFromDebrid) return;
+    const options = this.deps.options();
+    if (options.clearDownloadStation) await this.clearTasks(jobs);
+    if (!options.deleteFromDebrid) return;
     for (const job of jobs) {
       // The same torrent added again since: still in use.
       const inUse = this.jobs.some(
