@@ -76,7 +76,11 @@ export interface JobDeps {
   nas: NasConnection;
   events: EventHub;
   provider: (id: ProviderId) => DebridProvider;
-  options: () => { createSubfolder: boolean; deleteFromDebrid: boolean };
+  options: () => {
+    createSubfolder: boolean;
+    clearDownloadStation: boolean;
+    deleteFromDebrid: boolean;
+  };
 }
 
 const TICK_MS = 1000;
@@ -202,14 +206,20 @@ export class JobManager {
     return job;
   }
 
-  /** Removes a job. With `cancel`, also stops it on the debrid service and Download Station. */
+  /**
+   * Removes a job, and cleans up after it (see `dispose`). With `cancel`, also stops it on the
+   * debrid service and Download Station.
+   */
   async remove(id: string, cancel: boolean): Promise<void> {
     const job = this.get(id);
     this.deps.file.data.jobs = this.jobs.filter((item) => item !== job);
     this.deps.file.save();
     this.deps.events.emit('job-removed', { id });
 
-    if (!cancel) return;
+    if (!cancel) {
+      await this.dispose([job]);
+      return;
+    }
     const running = job.files
       .filter((file) => file.taskId && file.status !== 'completed')
       .map((file) => file.taskId!);
@@ -223,8 +233,11 @@ export class JobManager {
     await this.deleteFromDebrid(job);
   }
 
-  /** Removes completed and cancelled jobs (failed ones stay, to be retried or removed). */
-  clearFinished(): void {
+  /**
+   * Removes completed and cancelled jobs (failed ones stay, to be retried or removed), and
+   * cleans up after them (see `dispose`).
+   */
+  async clearFinished(): Promise<void> {
     const removed = this.jobs.filter(
       (job) => job.status === 'completed' || job.status === 'cancelled',
     );
@@ -232,6 +245,47 @@ export class JobManager {
     this.deps.file.data.jobs = this.jobs.filter((job) => !removed.includes(job));
     this.deps.file.save();
     for (const job of removed) this.deps.events.emit('job-removed', { id: job.id });
+    await this.dispose(removed);
+  }
+
+  /**
+   * Cleans up after jobs taken off the list, as the options say: their tasks leave Download
+   * Station, and their torrents the debrid service. Never throws.
+   */
+  private async dispose(jobs: Job[]): Promise<void> {
+    const options = this.deps.options();
+    if (options.clearDownloadStation) await this.clearTasks(jobs);
+    if (!options.deleteFromDebrid) return;
+    for (const job of jobs) {
+      // The same torrent added again since: still in use.
+      const inUse = this.jobs.some(
+        (other) => other.provider === job.provider && other.debridId === job.debridId,
+      );
+      if (!inUse) await this.deleteFromDebrid(job);
+    }
+  }
+
+  /**
+   * Removes the jobs' finished or failed tasks from Download Station's list. The downloaded
+   * files stay on the NAS, and tasks still running are left alone.
+   */
+  private async clearTasks(jobs: Job[]): Promise<void> {
+    const ids = new Set(jobs.flatMap((job) => job.files.map((file) => file.taskId)));
+    ids.delete(null);
+    if (!ids.size) return;
+    try {
+      await this.deps.nas.run(async (client, sid) => {
+        // Only the tasks still there: they may have been removed by hand or by auto-clean.
+        const done = (await client.listTasks(sid))
+          .filter(
+            (task) => ids.has(task.id) && ['finished', 'seeding', 'error'].includes(task.status),
+          )
+          .map((task) => task.id);
+        await client.deleteTasks(sid, done);
+      });
+    } catch (error) {
+      log.warn(`Could not remove Download Station tasks`, toErrorInfo(error));
+    }
   }
 
   /** Runs the waiting jobs now, e.g. once Download Station is set up again. */
@@ -289,8 +343,10 @@ export class JobManager {
       return ++count <= MAX_JOBS;
     });
     if (kept.length !== this.jobs.length) {
+      const pruned = this.jobs.filter((job) => !kept.includes(job));
       this.deps.file.data.jobs = kept;
       this.deps.file.save();
+      void this.dispose(pruned);
     }
   }
 
@@ -493,7 +549,6 @@ export class JobManager {
       job.speed = null;
       job.finishedAt = Date.now();
       this.changed(job);
-      if (!allRemoved && this.deps.options().deleteFromDebrid) await this.deleteFromDebrid(job);
       return;
     }
 

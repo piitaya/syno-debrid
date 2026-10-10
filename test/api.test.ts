@@ -48,7 +48,11 @@ function build(variables: Record<string, string> = {}, loginAttempts = 20, webRo
     nas,
     events,
     provider: (id) => configuredProvider(id, settings, env),
-    options: () => ({ createSubfolder: settings.createSubfolder, deleteFromDebrid: false }),
+    options: () => ({
+      createSubfolder: settings.createSubfolder,
+      clearDownloadStation: true,
+      deleteFromDebrid: false,
+    }),
   });
   const app = createApp({
     env,

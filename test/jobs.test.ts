@@ -25,7 +25,9 @@ beforeAll(async () => {
 });
 afterAll(() => server.close());
 
-function setup(options = { createSubfolder: true, deleteFromDebrid: false }) {
+function setup(
+  options = { createSubfolder: true, clearDownloadStation: true, deleteFromDebrid: false },
+) {
   const dir = mkdtempSync(join(tmpdir(), 'dds-'));
   const settings = new Settings(
     new JsonFile<StoredSettings>(join(dir, 'settings.json'), defaultSettings),
@@ -172,7 +174,11 @@ describe('JobManager', () => {
   });
 
   it('retries failed downloads with fresh links', async () => {
-    const { jobs, nas, provider, add } = setup({ createSubfolder: true, deleteFromDebrid: true });
+    const { jobs, nas, provider, add } = setup({
+      createSubfolder: true,
+      clearDownloadStation: true,
+      deleteFromDebrid: true,
+    });
     await connect(nas);
     const job = await add();
     await run(jobs);
@@ -194,7 +200,9 @@ describe('JobManager', () => {
     clock += 10_000;
     await run(jobs);
     expect(job.status).toBe('completed');
-    // deleteFromDebrid: cleaned up once downloaded.
+    // deleteFromDebrid: cleaned up once cleared from the list, not before.
+    expect(provider.torrents.get(job.debridId)?.deleted).toBe(false);
+    await jobs.clearFinished();
     expect(provider.torrents.get(job.debridId)?.deleted).toBe(true);
   });
 
@@ -243,7 +251,53 @@ describe('JobManager', () => {
       category,
     });
     done.status = 'completed';
-    jobs.clearFinished();
+    await jobs.clearFinished();
     expect(jobs.list()).toEqual([failed]);
+  });
+
+  it('removes cleared jobs from Download Station, but not running tasks', async () => {
+    const { jobs, nas, provider, add } = setup();
+    await connect(nas);
+    const done = await add();
+    await run(jobs, 2);
+    clock += 10_000;
+    await run(jobs);
+    expect(done.status).toBe('completed');
+    const doneTasks = done.files.map((file) => file.taskId!);
+
+    // Failed while Download Station still downloads one of its files.
+    const failed = await add();
+    await run(jobs, 2);
+    const [running, broken] = failed.files.map((file) => file.taskId!);
+    dsm.tasks.get(broken!)!.fail = 'broken_link';
+    failed.status = 'error';
+
+    await jobs.clearFinished();
+    expect(jobs.list()).toEqual([failed]);
+    expect(doneTasks.every((id) => dsm.tasks.get(id)?.deleted)).toBe(true);
+    // deleteFromDebrid is off: the torrent stays on the debrid service.
+    expect(provider.torrents.get(done.debridId)?.deleted).toBe(false);
+
+    await jobs.remove(failed.id, false);
+    expect(dsm.tasks.get(broken!)?.deleted).toBe(true);
+    expect(dsm.tasks.get(running!)?.deleted).toBe(false);
+  });
+
+  it('leaves Download Station alone when its cleanup is off', async () => {
+    const { jobs, nas, add } = setup({
+      createSubfolder: true,
+      clearDownloadStation: false,
+      deleteFromDebrid: false,
+    });
+    await connect(nas);
+    const job = await add();
+    await run(jobs, 2);
+    clock += 10_000;
+    await run(jobs);
+    expect(job.status).toBe('completed');
+
+    await jobs.clearFinished();
+    expect(jobs.list()).toEqual([]);
+    expect(job.files.every((file) => dsm.tasks.get(file.taskId!)?.deleted === false)).toBe(true);
   });
 });

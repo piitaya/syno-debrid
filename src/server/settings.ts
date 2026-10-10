@@ -26,6 +26,7 @@ export interface StoredSettings {
   apiKeys: Partial<Record<ProviderId, string>>;
   categories: Category[];
   createSubfolder: boolean;
+  clearDownloadStation: boolean;
   deleteFromDebrid: boolean;
 }
 
@@ -34,6 +35,7 @@ export const defaultSettings = (): StoredSettings => ({
   apiKeys: {},
   categories: [],
   createSubfolder: true,
+  clearDownloadStation: true,
   deleteFromDebrid: false,
 });
 
@@ -108,6 +110,10 @@ export class Settings {
     return this.data.createSubfolder;
   }
 
+  get clearDownloadStation(): boolean {
+    return this.data.clearDownloadStation;
+  }
+
   get deleteFromDebrid(): boolean {
     return this.data.deleteFromDebrid;
   }
@@ -119,6 +125,7 @@ export class Settings {
       providers: PROVIDER_IDS.map((id) => ({ id, configured: this.apiKey(id) !== null })),
       categories: this.data.categories,
       createSubfolder: this.data.createSubfolder,
+      clearDownloadStation: this.data.clearDownloadStation,
       deleteFromDebrid: this.data.deleteFromDebrid,
     };
   }
@@ -128,6 +135,9 @@ export class Settings {
 
     if (patch.categories !== undefined) next.categories = sanitizeCategories(patch.categories);
     if (typeof patch.createSubfolder === 'boolean') next.createSubfolder = patch.createSubfolder;
+    if (typeof patch.clearDownloadStation === 'boolean') {
+      next.clearDownloadStation = patch.clearDownloadStation;
+    }
     if (typeof patch.deleteFromDebrid === 'boolean') next.deleteFromDebrid = patch.deleteFromDebrid;
 
     if (patch.apiKeys) {

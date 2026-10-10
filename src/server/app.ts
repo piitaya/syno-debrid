@@ -442,8 +442,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     },
   );
 
-  api.post('/jobs/clear', requireSession, (c) => {
-    jobs.clearFinished();
+  api.post('/jobs/clear', requireSession, async (c) => {
+    await jobs.clearFinished();
     return c.body(null, 204);
   });
 
