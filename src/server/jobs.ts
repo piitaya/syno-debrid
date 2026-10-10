@@ -203,8 +203,8 @@ export class JobManager {
   }
 
   /**
-   * Removes a job, and its finished tasks from Download Station. With `cancel`, also stops it
-   * on the debrid service and Download Station.
+   * Removes a job, and cleans up after it (see `dispose`). With `cancel`, also stops it on the
+   * debrid service and Download Station.
    */
   async remove(id: string, cancel: boolean): Promise<void> {
     const job = this.get(id);
@@ -213,7 +213,7 @@ export class JobManager {
     this.deps.events.emit('job-removed', { id });
 
     if (!cancel) {
-      await this.clearTasks([job]);
+      await this.dispose([job]);
       return;
     }
     const running = job.files
@@ -231,7 +231,7 @@ export class JobManager {
 
   /**
    * Removes completed and cancelled jobs (failed ones stay, to be retried or removed), and
-   * their tasks from Download Station.
+   * cleans up after them (see `dispose`).
    */
   async clearFinished(): Promise<void> {
     const removed = this.jobs.filter(
@@ -241,7 +241,23 @@ export class JobManager {
     this.deps.file.data.jobs = this.jobs.filter((job) => !removed.includes(job));
     this.deps.file.save();
     for (const job of removed) this.deps.events.emit('job-removed', { id: job.id });
-    await this.clearTasks(removed);
+    await this.dispose(removed);
+  }
+
+  /**
+   * Cleans up after jobs taken off the list: their tasks leave Download Station, and their
+   * torrents the debrid service when the option is on. Never throws.
+   */
+  private async dispose(jobs: Job[]): Promise<void> {
+    await this.clearTasks(jobs);
+    if (!this.deps.options().deleteFromDebrid) return;
+    for (const job of jobs) {
+      // The same torrent added again since: still in use.
+      const inUse = this.jobs.some(
+        (other) => other.provider === job.provider && other.debridId === job.debridId,
+      );
+      if (!inUse) await this.deleteFromDebrid(job);
+    }
   }
 
   /**
@@ -322,8 +338,10 @@ export class JobManager {
       return ++count <= MAX_JOBS;
     });
     if (kept.length !== this.jobs.length) {
+      const pruned = this.jobs.filter((job) => !kept.includes(job));
       this.deps.file.data.jobs = kept;
       this.deps.file.save();
+      void this.dispose(pruned);
     }
   }
 
@@ -526,7 +544,6 @@ export class JobManager {
       job.speed = null;
       job.finishedAt = Date.now();
       this.changed(job);
-      if (!allRemoved && this.deps.options().deleteFromDebrid) await this.deleteFromDebrid(job);
       return;
     }
 

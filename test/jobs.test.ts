@@ -194,7 +194,9 @@ describe('JobManager', () => {
     clock += 10_000;
     await run(jobs);
     expect(job.status).toBe('completed');
-    // deleteFromDebrid: cleaned up once downloaded.
+    // deleteFromDebrid: cleaned up once cleared from the list, not before.
+    expect(provider.torrents.get(job.debridId)?.deleted).toBe(false);
+    await jobs.clearFinished();
     expect(provider.torrents.get(job.debridId)?.deleted).toBe(true);
   });
 
@@ -248,7 +250,7 @@ describe('JobManager', () => {
   });
 
   it('removes cleared jobs from Download Station, but not running tasks', async () => {
-    const { jobs, nas, add } = setup();
+    const { jobs, nas, provider, add } = setup();
     await connect(nas);
     const done = await add();
     await run(jobs, 2);
@@ -267,6 +269,8 @@ describe('JobManager', () => {
     await jobs.clearFinished();
     expect(jobs.list()).toEqual([failed]);
     expect(doneTasks.every((id) => dsm.tasks.get(id)?.deleted)).toBe(true);
+    // deleteFromDebrid is off: the torrent stays on the debrid service.
+    expect(provider.torrents.get(done.debridId)?.deleted).toBe(false);
 
     await jobs.remove(failed.id, false);
     expect(dsm.tasks.get(broken!)?.deleted).toBe(true);
